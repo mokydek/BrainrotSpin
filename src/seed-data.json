@@ -1,0 +1,1171 @@
+{
+ "items": [
+  {
+   "name": "Noobini Pizzanini",
+   "value": 1,
+   "emoji": "🍕"
+  },
+  {
+   "name": "Lirilì Larilà",
+   "value": 2,
+   "emoji": "🌵"
+  },
+  {
+   "name": "Tim Cheese",
+   "value": 2,
+   "emoji": "🧀"
+  },
+  {
+   "name": "Fluriflura",
+   "value": 3,
+   "emoji": "🌸"
+  },
+  {
+   "name": "Talpa Di Fero",
+   "value": 3,
+   "emoji": "⛏️"
+  },
+  {
+   "name": "Svinina Bombardino",
+   "value": 4,
+   "emoji": "🐷"
+  },
+  {
+   "name": "Pipi Kiwi",
+   "value": 4,
+   "emoji": "🥝"
+  },
+  {
+   "name": "Trippi Troppi",
+   "value": 5,
+   "emoji": "🦐"
+  },
+  {
+   "name": "Tung Tung Tung Sahur",
+   "value": 6,
+   "emoji": "🪵"
+  },
+  {
+   "name": "Gangster Footera",
+   "value": 6,
+   "emoji": "🕶️"
+  },
+  {
+   "name": "Bandito Bobritto",
+   "value": 7,
+   "emoji": "🦫"
+  },
+  {
+   "name": "Boneca Ambalabu",
+   "value": 8,
+   "emoji": "🐸"
+  },
+  {
+   "name": "Cacto Hipopotamo",
+   "value": 8,
+   "emoji": "🦛"
+  },
+  {
+   "name": "Ta Ta Ta Ta Sahur",
+   "value": 9,
+   "emoji": "🫖"
+  },
+  {
+   "name": "Tric Trac Baraboom",
+   "value": 10,
+   "emoji": "💥"
+  },
+  {
+   "name": "Cappuccino Assassino",
+   "value": 12,
+   "emoji": "☕"
+  },
+  {
+   "name": "Brr Brr Patapim",
+   "value": 14,
+   "emoji": "🌳"
+  },
+  {
+   "name": "Trulimero Trulicina",
+   "value": 15,
+   "emoji": "🐟"
+  },
+  {
+   "name": "Bambini Crostini",
+   "value": 16,
+   "emoji": "🥖"
+  },
+  {
+   "name": "Bananita Dolphinita",
+   "value": 18,
+   "emoji": "🐬"
+  },
+  {
+   "name": "Perochello Lemonchello",
+   "value": 20,
+   "emoji": "🍋"
+  },
+  {
+   "name": "Brri Brri Bicus Dicus Bombicus",
+   "value": 22,
+   "emoji": "🐦"
+  },
+  {
+   "name": "Avocadini Guffo",
+   "value": 24,
+   "emoji": "🥑"
+  },
+  {
+   "name": "Salamino Penguino",
+   "value": 25,
+   "emoji": "🐧"
+  },
+  {
+   "name": "Burbaloni Loliloli",
+   "value": 28,
+   "emoji": "🍭"
+  },
+  {
+   "name": "Chimpanzini Bananini",
+   "value": 30,
+   "emoji": "🍌"
+  },
+  {
+   "name": "Ballerina Cappuccina",
+   "value": 32,
+   "emoji": "🩰"
+  },
+  {
+   "name": "Chef Crabracadabra",
+   "value": 35,
+   "emoji": "🦀"
+  },
+  {
+   "name": "Lionel Cactuseli",
+   "value": 38,
+   "emoji": "🦁"
+  },
+  {
+   "name": "Glorbo Fruttodrillo",
+   "value": 40,
+   "emoji": "🍉"
+  },
+  {
+   "name": "Blueberrinni Octopusini",
+   "value": 42,
+   "emoji": "🐙"
+  },
+  {
+   "name": "Strawberelli Flamingelli",
+   "value": 45,
+   "emoji": "🦩"
+  },
+  {
+   "name": "Cocosini Mama",
+   "value": 48,
+   "emoji": "🥥"
+  },
+  {
+   "name": "Frigo Camelo",
+   "value": 50,
+   "emoji": "🐫"
+  },
+  {
+   "name": "Orangutini Ananassini",
+   "value": 52,
+   "emoji": "🍍"
+  },
+  {
+   "name": "Rhino Toasterino",
+   "value": 55,
+   "emoji": "🦏"
+  },
+  {
+   "name": "Garamma and Madundung",
+   "value": 60,
+   "emoji": "🍲"
+  },
+  {
+   "name": "Wave Rider",
+   "value": 60,
+   "emoji": "🏄"
+  },
+  {
+   "name": "Cupid's Wings",
+   "value": 60,
+   "emoji": "💘"
+  },
+  {
+   "name": "La Secret Combinasion",
+   "value": 60,
+   "emoji": "🔐"
+  },
+  {
+   "name": "Witch's Broom",
+   "value": 65,
+   "emoji": "🧹"
+  },
+  {
+   "name": "Cash or Card",
+   "value": 70,
+   "emoji": "💳"
+  },
+  {
+   "name": "Bombardiro Crocodilo",
+   "value": 75,
+   "emoji": "🐊"
+  },
+  {
+   "name": "Santa's Sleigh",
+   "value": 80,
+   "emoji": "🛷"
+  },
+  {
+   "name": "Bombombini Gusini",
+   "value": 85,
+   "emoji": "🪿"
+  },
+  {
+   "name": "Burguro and Fryuro",
+   "value": 90,
+   "emoji": "🍔"
+  },
+  {
+   "name": "Cavallo Virtuoso",
+   "value": 100,
+   "emoji": "🐴"
+  },
+  {
+   "name": "Gorillo Watermelondrillo",
+   "value": 110,
+   "emoji": "🦍"
+  },
+  {
+   "name": "Tigrilini Watermelini",
+   "value": 120,
+   "emoji": "🐯"
+  },
+  {
+   "name": "Capitano Moby",
+   "value": 130,
+   "emoji": "🚢"
+  },
+  {
+   "name": "Cocofanto Elefanto",
+   "value": 140,
+   "emoji": "🐘"
+  },
+  {
+   "name": "Boppin Bunny",
+   "value": 150,
+   "emoji": "🐰"
+  },
+  {
+   "name": "Orcalero Orcala",
+   "value": 160,
+   "emoji": "🐋"
+  },
+  {
+   "name": "Cooki and Milki",
+   "value": 170,
+   "emoji": "🍪"
+  },
+  {
+   "name": "Spooky and Pumpky",
+   "value": 175,
+   "emoji": "🎃"
+  },
+  {
+   "name": "Tralalero Tralala",
+   "value": 200,
+   "emoji": "🦈"
+  },
+  {
+   "name": "Odin Din Din Dun",
+   "value": 220,
+   "emoji": "🗿"
+  },
+  {
+   "name": "Girafa Celestre",
+   "value": 240,
+   "emoji": "🦒"
+  },
+  {
+   "name": "Matteo",
+   "value": 250,
+   "emoji": "🎩"
+  },
+  {
+   "name": "Gattatino Neonino",
+   "value": 280,
+   "emoji": "🐱"
+  },
+  {
+   "name": "La Vacca Saturno Saturnita",
+   "value": 300,
+   "emoji": "🐄"
+  },
+  {
+   "name": "Chimpanzini Spiderini",
+   "value": 350,
+   "emoji": "🕷️"
+  },
+  {
+   "name": "Los Tralaleritos",
+   "value": 400,
+   "emoji": "🌊"
+  },
+  {
+   "name": "Graipuss Medussi",
+   "value": 450,
+   "emoji": "🪼"
+  },
+  {
+   "name": "Trenostruzzo Turbo 3000",
+   "value": 500,
+   "emoji": "🚂"
+  },
+  {
+   "name": "Pot Hotspot",
+   "value": 600,
+   "emoji": "📶"
+  },
+  {
+   "name": "Esok Sekolah",
+   "value": 700,
+   "emoji": "🏫"
+  },
+  {
+   "name": "La Grande Combinasion",
+   "value": 900,
+   "emoji": "🧩"
+  },
+  {
+   "name": "Dragon Cannelloni",
+   "value": 1100,
+   "emoji": "🐉"
+  },
+  {
+   "name": "Hydra Dragon Cannelloni",
+   "value": 1350,
+   "emoji": "🐲"
+  },
+  {
+   "name": "Nuclearo Dinossauro",
+   "value": 1600,
+   "emoji": "🦖"
+  },
+  {
+   "name": "Los Combinasionas",
+   "value": 2500,
+   "emoji": "💠"
+  },
+  {
+   "name": "Griffin",
+   "value": 5000,
+   "emoji": "🦅"
+  },
+  {
+   "name": "Strawberry Elephant",
+   "value": 9000,
+   "emoji": "🍓"
+  },
+  {
+   "name": "Skibidi Toilet",
+   "value": 16500,
+   "emoji": "🚽"
+  }
+ ],
+ "cases": [
+  {
+   "slug": "free",
+   "name_ru": "FREE кейс",
+   "name_uk": "FREE кейс",
+   "name_en": "FREE case",
+   "price": 0,
+   "is_free": true,
+   "emoji": "🎁",
+   "color": "#22c55e",
+   "sort": 0,
+   "items": [
+    {
+     "item": "Noobini Pizzanini",
+     "chance": 12.25
+    },
+    {
+     "item": "Lirilì Larilà",
+     "chance": 8.922
+    },
+    {
+     "item": "Tim Cheese",
+     "chance": 8.922
+    },
+    {
+     "item": "Fluriflura",
+     "chance": 7.414
+    },
+    {
+     "item": "Talpa Di Fero",
+     "chance": 7.414
+    },
+    {
+     "item": "Svinina Bombardino",
+     "chance": 6.501
+    },
+    {
+     "item": "Pipi Kiwi",
+     "chance": 6.501
+    },
+    {
+     "item": "Trippi Troppi",
+     "chance": 5.871
+    },
+    {
+     "item": "Tung Tung Tung Sahur",
+     "chance": 5.402
+    },
+    {
+     "item": "Gangster Footera",
+     "chance": 5.402
+    },
+    {
+     "item": "Boneca Ambalabu",
+     "chance": 4.737
+    },
+    {
+     "item": "Tric Trac Baraboom",
+     "chance": 4.278
+    },
+    {
+     "item": "Cappuccino Assassino",
+     "chance": 3.936
+    },
+    {
+     "item": "Bananita Dolphinita",
+     "chance": 3.271
+    },
+    {
+     "item": "Salamino Penguino",
+     "chance": 2.815
+    },
+    {
+     "item": "Chimpanzini Bananini",
+     "chance": 2.59
+    },
+    {
+     "item": "Garamma and Madundung",
+     "chance": 1.887
+    },
+    {
+     "item": "Cupid's Wings",
+     "chance": 1.887
+    }
+   ]
+  },
+  {
+   "slug": "noob",
+   "name_ru": "Нуб кейс",
+   "name_uk": "Нуб кейс",
+   "name_en": "Noob case",
+   "price": 10,
+   "is_free": false,
+   "emoji": "🔰",
+   "color": "#94a3b8",
+   "sort": 1,
+   "items": [
+    {
+     "item": "Noobini Pizzanini",
+     "chance": 18.961
+    },
+    {
+     "item": "Lirilì Larilà",
+     "chance": 11.767
+    },
+    {
+     "item": "Fluriflura",
+     "chance": 8.902
+    },
+    {
+     "item": "Svinina Bombardino",
+     "chance": 7.303
+    },
+    {
+     "item": "Trippi Troppi",
+     "chance": 6.263
+    },
+    {
+     "item": "Tung Tung Tung Sahur",
+     "chance": 5.524
+    },
+    {
+     "item": "Bandito Bobritto",
+     "chance": 4.968
+    },
+    {
+     "item": "Boneca Ambalabu",
+     "chance": 4.532
+    },
+    {
+     "item": "Ta Ta Ta Ta Sahur",
+     "chance": 4.179
+    },
+    {
+     "item": "Tric Trac Baraboom",
+     "chance": 3.887
+    },
+    {
+     "item": "Cappuccino Assassino",
+     "chance": 3.428
+    },
+    {
+     "item": "Brr Brr Patapim",
+     "chance": 3.083
+    },
+    {
+     "item": "Trulimero Trulicina",
+     "chance": 2.94
+    },
+    {
+     "item": "Bananita Dolphinita",
+     "chance": 2.594
+    },
+    {
+     "item": "Perochello Lemonchello",
+     "chance": 2.412
+    },
+    {
+     "item": "Avocadini Guffo",
+     "chance": 2.128
+    },
+    {
+     "item": "Salamino Penguino",
+     "chance": 2.069
+    },
+    {
+     "item": "Chimpanzini Bananini",
+     "chance": 1.825
+    },
+    {
+     "item": "Garamma and Madundung",
+     "chance": 1.132
+    },
+    {
+     "item": "Wave Rider",
+     "chance": 1.132
+    },
+    {
+     "item": "Bombardiro Crocodilo",
+     "chance": 0.971
+    }
+   ]
+  },
+  {
+   "slug": "pro",
+   "name_ru": "Про кейс",
+   "name_uk": "Про кейс",
+   "name_en": "Pro case",
+   "price": 25,
+   "is_free": false,
+   "emoji": "⭐",
+   "color": "#3b82f6",
+   "sort": 2,
+   "items": [
+    {
+     "item": "Tung Tung Tung Sahur",
+     "chance": 19.09
+    },
+    {
+     "item": "Boneca Ambalabu",
+     "chance": 14.159
+    },
+    {
+     "item": "Tric Trac Baraboom",
+     "chance": 11.23
+    },
+    {
+     "item": "Brr Brr Patapim",
+     "chance": 7.918
+    },
+    {
+     "item": "Bambini Crostini",
+     "chance": 6.892
+    },
+    {
+     "item": "Perochello Lemonchello",
+     "chance": 5.467
+    },
+    {
+     "item": "Brri Brri Bicus Dicus Bombicus",
+     "chance": 4.951
+    },
+    {
+     "item": "Salamino Penguino",
+     "chance": 4.336
+    },
+    {
+     "item": "Burbaloni Loliloli",
+     "chance": 3.854
+    },
+    {
+     "item": "Ballerina Cappuccina",
+     "chance": 3.355
+    },
+    {
+     "item": "Chef Crabracadabra",
+     "chance": 3.057
+    },
+    {
+     "item": "Glorbo Fruttodrillo",
+     "chance": 2.661
+    },
+    {
+     "item": "Strawberelli Flamingelli",
+     "chance": 2.355
+    },
+    {
+     "item": "Frigo Camelo",
+     "chance": 2.111
+    },
+    {
+     "item": "La Secret Combinasion",
+     "chance": 1.746
+    },
+    {
+     "item": "Witch's Broom",
+     "chance": 1.607
+    },
+    {
+     "item": "Cash or Card",
+     "chance": 1.488
+    },
+    {
+     "item": "Santa's Sleigh",
+     "chance": 1.295
+    },
+    {
+     "item": "Burguro and Fryuro",
+     "chance": 1.146
+    },
+    {
+     "item": "Capitano Moby",
+     "chance": 0.782
+    },
+    {
+     "item": "Tralalero Tralala",
+     "chance": 0.5
+    }
+   ]
+  },
+  {
+   "slug": "fish",
+   "name_ru": "Рыбный кейс",
+   "name_uk": "Рибний кейс",
+   "name_en": "Fish case",
+   "price": 65,
+   "is_free": false,
+   "emoji": "🐟",
+   "color": "#06b6d4",
+   "sort": 3,
+   "items": [
+    {
+     "item": "Trulimero Trulicina",
+     "chance": 18.245
+    },
+    {
+     "item": "Bananita Dolphinita",
+     "chance": 16.017
+    },
+    {
+     "item": "Salamino Penguino",
+     "chance": 12.667
+    },
+    {
+     "item": "Chef Crabracadabra",
+     "chance": 9.96
+    },
+    {
+     "item": "Blueberrinni Octopusini",
+     "chance": 8.744
+    },
+    {
+     "item": "Strawberelli Flamingelli",
+     "chance": 8.324
+    },
+    {
+     "item": "Wave Rider",
+     "chance": 6.777
+    },
+    {
+     "item": "Bombardiro Crocodilo",
+     "chance": 5.779
+    },
+    {
+     "item": "Capitano Moby",
+     "chance": 3.901
+    },
+    {
+     "item": "Orcalero Orcala",
+     "chance": 3.363
+    },
+    {
+     "item": "Tralalero Tralala",
+     "chance": 2.868
+    },
+    {
+     "item": "Los Tralaleritos",
+     "chance": 1.748
+    },
+    {
+     "item": "Graipuss Medussi",
+     "chance": 1.607
+    }
+   ]
+  },
+  {
+   "slug": "dlc",
+   "name_ru": "DLC кейс",
+   "name_uk": "DLC кейс",
+   "name_en": "DLC case",
+   "price": 200,
+   "is_free": false,
+   "emoji": "🎮",
+   "color": "#8b5cf6",
+   "sort": 4,
+   "items": [
+    {
+     "item": "Cash or Card",
+     "chance": 10.107
+    },
+    {
+     "item": "Santa's Sleigh",
+     "chance": 9.21
+    },
+    {
+     "item": "Burguro and Fryuro",
+     "chance": 8.485
+    },
+    {
+     "item": "Cavallo Virtuoso",
+     "chance": 7.886
+    },
+    {
+     "item": "Gorillo Watermelondrillo",
+     "chance": 7.38
+    },
+    {
+     "item": "Tigrilini Watermelini",
+     "chance": 6.946
+    },
+    {
+     "item": "Capitano Moby",
+     "chance": 6.57
+    },
+    {
+     "item": "Cocofanto Elefanto",
+     "chance": 6.24
+    },
+    {
+     "item": "Boppin Bunny",
+     "chance": 5.948
+    },
+    {
+     "item": "Cooki and Milki",
+     "chance": 5.452
+    },
+    {
+     "item": "Tralalero Tralala",
+     "chance": 4.869
+    },
+    {
+     "item": "Girafa Celestre",
+     "chance": 4.289
+    },
+    {
+     "item": "Matteo",
+     "chance": 4.169
+    },
+    {
+     "item": "La Vacca Saturno Saturnita",
+     "chance": 3.672
+    },
+    {
+     "item": "Los Tralaleritos",
+     "chance": 3.006
+    },
+    {
+     "item": "Trenostruzzo Turbo 3000",
+     "chance": 2.574
+    },
+    {
+     "item": "La Grande Combinasion",
+     "chance": 1.71
+    },
+    {
+     "item": "Dragon Cannelloni",
+     "chance": 1.487
+    }
+   ]
+  },
+  {
+   "slug": "halloween",
+   "name_ru": "Хэллоуин кейс",
+   "name_uk": "Гелловін кейс",
+   "name_en": "Halloween case",
+   "price": 250,
+   "is_free": false,
+   "emoji": "🎃",
+   "color": "#f97316",
+   "sort": 5,
+   "items": [
+    {
+     "item": "Witch's Broom",
+     "chance": 18.133
+    },
+    {
+     "item": "Bombombini Gusini",
+     "chance": 14.677
+    },
+    {
+     "item": "Boppin Bunny",
+     "chance": 9.38
+    },
+    {
+     "item": "Cooki and Milki",
+     "chance": 8.498
+    },
+    {
+     "item": "Spooky and Pumpky",
+     "chance": 8.306
+    },
+    {
+     "item": "Odin Din Din Dun",
+     "chance": 6.935
+    },
+    {
+     "item": "Matteo",
+     "chance": 6.27
+    },
+    {
+     "item": "Gattatino Neonino",
+     "chance": 5.735
+    },
+    {
+     "item": "La Vacca Saturno Saturnita",
+     "chance": 5.431
+    },
+    {
+     "item": "Chimpanzini Spiderini",
+     "chance": 4.81
+    },
+    {
+     "item": "Graipuss Medussi",
+     "chance": 3.945
+    },
+    {
+     "item": "Pot Hotspot",
+     "chance": 3.145
+    },
+    {
+     "item": "Esok Sekolah",
+     "chance": 2.785
+    },
+    {
+     "item": "Dragon Cannelloni",
+     "chance": 1.95
+    }
+   ]
+  },
+  {
+   "slug": "summer",
+   "name_ru": "Летний кейс",
+   "name_uk": "Літній кейс",
+   "name_en": "Summer case",
+   "price": 350,
+   "is_free": false,
+   "emoji": "☀️",
+   "color": "#facc15",
+   "sort": 6,
+   "items": [
+    {
+     "item": "Orangutini Ananassini",
+     "chance": 11.323
+    },
+    {
+     "item": "Wave Rider",
+     "chance": 10.542
+    },
+    {
+     "item": "Cavallo Virtuoso",
+     "chance": 8.165
+    },
+    {
+     "item": "Gorillo Watermelondrillo",
+     "chance": 7.785
+    },
+    {
+     "item": "Tigrilini Watermelini",
+     "chance": 7.454
+    },
+    {
+     "item": "Capitano Moby",
+     "chance": 7.162
+    },
+    {
+     "item": "Orcalero Orcala",
+     "chance": 6.455
+    },
+    {
+     "item": "Tralalero Tralala",
+     "chance": 5.774
+    },
+    {
+     "item": "Girafa Celestre",
+     "chance": 5.271
+    },
+    {
+     "item": "Gattatino Neonino",
+     "chance": 4.88
+    },
+    {
+     "item": "La Vacca Saturno Saturnita",
+     "chance": 4.714
+    },
+    {
+     "item": "Los Tralaleritos",
+     "chance": 4.083
+    },
+    {
+     "item": "Graipuss Medussi",
+     "chance": 3.849
+    },
+    {
+     "item": "Trenostruzzo Turbo 3000",
+     "chance": 3.652
+    },
+    {
+     "item": "Esok Sekolah",
+     "chance": 3.086
+    },
+    {
+     "item": "La Grande Combinasion",
+     "chance": 2.722
+    },
+    {
+     "item": "Hydra Dragon Cannelloni",
+     "chance": 2.222
+    },
+    {
+     "item": "Strawberry Elephant",
+     "chance": 0.861
+    }
+   ]
+  },
+  {
+   "slug": "dragon",
+   "name_ru": "Драгон кейс",
+   "name_uk": "Драгон кейс",
+   "name_en": "Dragon case",
+   "price": 450,
+   "is_free": false,
+   "emoji": "🐉",
+   "color": "#ef4444",
+   "sort": 7,
+   "items": [
+    {
+     "item": "Bombardiro Crocodilo",
+     "chance": 24.595
+    },
+    {
+     "item": "Tralalero Tralala",
+     "chance": 10.392
+    },
+    {
+     "item": "Odin Din Din Dun",
+     "chance": 9.558
+    },
+    {
+     "item": "Matteo",
+     "chance": 8.543
+    },
+    {
+     "item": "La Vacca Saturno Saturnita",
+     "chance": 7.279
+    },
+    {
+     "item": "Chimpanzini Spiderini",
+     "chance": 6.357
+    },
+    {
+     "item": "Los Tralaleritos",
+     "chance": 5.654
+    },
+    {
+     "item": "Graipuss Medussi",
+     "chance": 5.098
+    },
+    {
+     "item": "Trenostruzzo Turbo 3000",
+     "chance": 4.647
+    },
+    {
+     "item": "Pot Hotspot",
+     "chance": 3.96
+    },
+    {
+     "item": "Esok Sekolah",
+     "chance": 3.458
+    },
+    {
+     "item": "La Grande Combinasion",
+     "chance": 2.773
+    },
+    {
+     "item": "Dragon Cannelloni",
+     "chance": 2.325
+    },
+    {
+     "item": "Hydra Dragon Cannelloni",
+     "chance": 1.942
+    },
+    {
+     "item": "Nuclearo Dinossauro",
+     "chance": 1.673
+    },
+    {
+     "item": "Los Combinasionas",
+     "chance": 1.131
+    },
+    {
+     "item": "Griffin",
+     "chance": 0.615
+    }
+   ]
+  },
+  {
+   "slug": "mushroom",
+   "name_ru": "Грибной кейс",
+   "name_uk": "Грибний кейс",
+   "name_en": "Mushroom case",
+   "price": 750,
+   "is_free": false,
+   "emoji": "🍄",
+   "color": "#d946ef",
+   "sort": 8,
+   "items": [
+    {
+     "item": "Matteo",
+     "chance": 15.339
+    },
+    {
+     "item": "La Vacca Saturno Saturnita",
+     "chance": 13.063
+    },
+    {
+     "item": "Chimpanzini Spiderini",
+     "chance": 11.402
+    },
+    {
+     "item": "Los Tralaleritos",
+     "chance": 10.136
+    },
+    {
+     "item": "Graipuss Medussi",
+     "chance": 9.136
+    },
+    {
+     "item": "Trenostruzzo Turbo 3000",
+     "chance": 8.325
+    },
+    {
+     "item": "Pot Hotspot",
+     "chance": 7.089
+    },
+    {
+     "item": "Esok Sekolah",
+     "chance": 6.188
+    },
+    {
+     "item": "La Grande Combinasion",
+     "chance": 4.958
+    },
+    {
+     "item": "Dragon Cannelloni",
+     "chance": 4.154
+    },
+    {
+     "item": "Hydra Dragon Cannelloni",
+     "chance": 3.467
+    },
+    {
+     "item": "Nuclearo Dinossauro",
+     "chance": 2.985
+    },
+    {
+     "item": "Los Combinasionas",
+     "chance": 2.014
+    },
+    {
+     "item": "Griffin",
+     "chance": 1.093
+    },
+    {
+     "item": "Strawberry Elephant",
+     "chance": 0.651
+    }
+   ]
+  },
+  {
+   "slug": "griffin",
+   "name_ru": "Грифон кейс",
+   "name_uk": "Грифон кейс",
+   "name_en": "Griffin case",
+   "price": 2000,
+   "is_free": false,
+   "emoji": "🦅",
+   "color": "#f59e0b",
+   "sort": 9,
+   "items": [
+    {
+     "item": "Pot Hotspot",
+     "chance": 18.915
+    },
+    {
+     "item": "Esok Sekolah",
+     "chance": 17.03
+    },
+    {
+     "item": "La Grande Combinasion",
+     "chance": 14.352
+    },
+    {
+     "item": "Dragon Cannelloni",
+     "chance": 12.519
+    },
+    {
+     "item": "Hydra Dragon Cannelloni",
+     "chance": 10.889
+    },
+    {
+     "item": "Nuclearo Dinossauro",
+     "chance": 9.7
+    },
+    {
+     "item": "Los Combinasionas",
+     "chance": 7.158
+    },
+    {
+     "item": "Griffin",
+     "chance": 4.465
+    },
+    {
+     "item": "Strawberry Elephant",
+     "chance": 2.992
+    },
+    {
+     "item": "Skibidi Toilet",
+     "chance": 1.98
+    }
+   ]
+  }
+ ]
+}
