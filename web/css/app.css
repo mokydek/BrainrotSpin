@@ -674,6 +674,8 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .row-main > b { font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row-main small { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 500; color: var(--muted); }
+.row-main small.inv-src { gap: 0 4px; font-size: 11px; }
+.src-link { color: var(--a1); font-weight: 700; text-decoration: none; }
 .row-side { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: none; font-size: 12px; }
 .badge { padding: 3px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); font-size: 10.5px; font-weight: 800; white-space: nowrap; }
 .badge.ok { background: rgba(34, 197, 94, 0.2); color: #6ef0a0; }
