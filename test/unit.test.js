@@ -183,7 +183,10 @@ test('UI texts: RU/UK/EN have the same keys and every key used in the app exists
     ...['cases', 'upgrade', 'profile', 'admin'].map((k) => 'tab.' + k),
     ...['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic', 'secret'].map((k) => 'r.' + k),
     ...['sunset', 'graphite', 'mint', 'redblue', 'violet', 'ocean'].map((k) => 'theme.' + k),
-    ...['overview', 'cases', 'items', 'users', 'promos', 'settings', 'broadcast'].map((k) => 'a.' + k),
+    ...['overview', 'deposits', 'withdrawals', 'cases', 'items', 'users', 'promos', 'settings', 'broadcast'].map((k) => 'a.' + k),
+    ...['open', 'all', 'deposit', 'withdraw'].map((k) => 'a.r.' + k),
+    ...['new', 'active', 'done', 'rejected'].map((k) => 'a.r.st.' + k),
+    ...['created', 'credit', 'give', 'done', 'rejected'].map((k) => 'a.r.sys.' + k),
     ...['users', 'new24', 'online', 'opened24', 'upgrades24', 'coins', 'items_value'].map((k) => 'a.st.' + k),
     ...Object.keys(SETTINGS_SCHEMA).map((k) => 'a.s.' + k),
   ];
@@ -197,6 +200,19 @@ test('UI texts: RU/UK/EN have the same keys and every key used in the app exists
   const admin = rf(new URL('../src/admin.js', import.meta.url), 'utf8');
   const adminCodes = new Set([...admin.matchAll(/GameError\('([a-z_]+)'/g)].map((m) => m[1]));
   for (const c of adminCodes) if (!['not_found', 'forbidden'].includes(c)) assert.ok('a.e.' + c in DICTS.ru, `no admin message for ${c}`);
+
+  // deposits / withdrawals: player errors have a message, admin-only errors an admin message
+  const req = rf(new URL('../src/requests.js', import.meta.url), 'utf8');
+  const reqCodes = new Set([...req.matchAll(/(?:GameError\(|cleanText\([^;]*?, )'([a-z_]+)'/g)].map((m) => m[1]));
+  const playerSide = ['bad_nick', 'bad_details', 'too_many_requests', 'bad_stars', 'bot_disabled', 'invoice_failed', 'items_missing'];
+  for (const c of playerSide) {
+    assert.ok(reqCodes.has(c), `requests.js no longer throws ${c}`);
+    assert.ok('e.' + c in DICTS.ru, `no message for error ${c}`);
+  }
+  for (const c of reqCodes) {
+    if (playerSide.includes(c) || ['not_found', 'bad_request'].includes(c)) continue;
+    assert.ok('a.e.' + c in DICTS.ru, `no admin message for ${c}`);
+  }
 });
 
 test('config: without bot token or secret, login tokens use a random secret', async () => {

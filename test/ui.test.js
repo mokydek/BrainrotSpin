@@ -170,16 +170,250 @@ test('promo code from the balance button', { skip }, async () => {
   const { page } = await open();
   await page.waitForSelector('.case-grid');
   const before = num(await page.textContent('#bal'));
-  await page.click('[data-act="promo"]');
+  await page.click('[data-act="topup"]');
+  await page.click('.topup [data-act="promo"]');
   await page.fill('#promoInput', 'brainrot100');
   await page.click('#promoForm button');
   await page.waitForSelector('.toast.ok');
   assert.equal(num(await page.textContent('#bal')), before + 100);
-  await page.click('[data-act="promo"]');
+  await page.click('[data-act="topup"]');
+  await page.click('.topup [data-act="promo"]');
   await page.fill('#promoInput', 'brainrot100');
   await page.click('#promoForm button');
   await page.waitForSelector('.toast.error');
   assert.match(await page.textContent('.toast.error'), /Ты уже активировал этот промокод/);
+  await page.context().close();
+});
+
+test('top-up menu: Stars, brainrots and promo code', { skip }, async () => {
+  const { page, errors } = await open();
+  await page.waitForSelector('.case-grid');
+  await page.click('[data-act="topup"]');
+  await page.waitForSelector('.topup .tu-opts');
+  assert.equal(await page.textContent('.topup .sheet-title'), 'Пополнение');
+  assert.deepEqual(await page.locator('.tu-opt b').allTextContents(), ['Звёзды', 'Брейнроты']);
+  assert.equal(await page.textContent('.tu-promo'), 'Промокод');
+  await page.click('[data-act="tu-brainrots"]');
+  await page.waitForSelector('#depForm');
+  await page.click('[data-act="tu-menu"]');
+  await page.waitForSelector('.tu-opts');
+  assert.deepEqual(errors, []);
+  await page.context().close();
+});
+
+test('top-up with Telegram Stars: invoice opens, payment is credited', { skip }, async () => {
+  const { page, errors } = await open();
+  await page.waitForSelector('.case-grid');
+  const before = num(await page.textContent('#bal'));
+  await page.click('[data-act="topup"]');
+  await page.click('[data-act="tu-stars"]');
+  await page.waitForSelector('#starsForm');
+  assert.equal(num(await page.textContent('#starsGet')), 100, 'default 100 stars at rate 1');
+  await page.fill('#starsInput', '0');
+  assert.equal(await page.isDisabled('#starsPay'), true);
+  await page.fill('#starsInput', '40');
+  assert.equal(num(await page.textContent('#starsGet')), 40);
+  assert.equal(num(await page.textContent('#starsPay')), 40);
+  demo.app.tg.reset();
+  await page.click('#starsPay');
+  await page.waitForFunction(() => window.__tgCalls.some((c) => c[0] === 'openInvoice'));
+  const link = await page.evaluate(() => window.__tgCalls.find((c) => c[0] === 'openInvoice')[1]);
+  assert.match(link, /^https:\/\/t\.me\/\$inv_/);
+  const inv = demo.app.tg.calls('createInvoiceLink')[0].payload;
+  assert.deepEqual(inv.prices, [{ label: '40 монет', amount: 40 }]);
+  // Telegram: pre-checkout, then the payment message, then the Mini App callback
+  await demo.app.sendUpdate({ pre_checkout_query: { id: 'pq1', from: { is_bot: false, ...ME }, currency: 'XTR', total_amount: 40, invoice_payload: inv.payload } });
+  assert.equal(demo.app.tg.calls('answerPreCheckoutQuery')[0].payload.ok, true);
+  await demo.app.sendUpdate({
+    message: {
+      message_id: 501, date: 0, chat: { id: ME.id, type: 'private' }, from: { is_bot: false, ...ME },
+      successful_payment: { currency: 'XTR', total_amount: 40, invoice_payload: inv.payload, telegram_payment_charge_id: 'ui-charge-1', provider_payment_charge_id: '' },
+    },
+  });
+  await page.evaluate(() => window.__invoiceCb('paid'));
+  await page.waitForSelector('.toast.ok');
+  assert.match(await page.textContent('.toast.ok'), /Баланс пополнен: \+40/);
+  await page.waitForFunction((b) => Number(document.querySelector('#bal').textContent.replace(/\D/g, '')) === b + 40, before);
+  await page.waitForSelector('.modal-wrap', { state: 'detached' }); // sheet closed
+  assert.deepEqual(errors, []);
+  await page.context().close();
+});
+
+test('website mode: Stars invoice opens as a Telegram link and the balance updates by itself', { skip }, async () => {
+  const u = await demo.ctx.db.one('SELECT id, web_ver FROM bs_users WHERE id = $1', [ME.id]);
+  const token = signWebToken(u.id, u.web_ver, demo.ctx.config.sessionSecret);
+  const { page, context, errors } = await open({ stub: false, path: `/?login=${token}` });
+  await context.route('https://t.me/**', (r) => r.fulfill({ contentType: 'text/html', body: '<title>Telegram</title>' }));
+  await page.waitForSelector('.case-grid');
+  const before = num(await page.textContent('#bal'));
+  await page.click('[data-act="topup"]');
+  await page.click('[data-act="tu-stars"]');
+  await page.fill('#starsInput', '15');
+  await page.click('#starsPay');
+  await page.waitForSelector('#starsLink');
+  // changing the amount drops the link made for the old amount
+  await page.fill('#starsInput', '500');
+  await page.waitForSelector('#starsPay');
+  assert.equal(await page.locator('#starsLink').count(), 0);
+  assert.equal(num(await page.textContent('#starsPay')), 500);
+  await page.fill('#starsInput', '15');
+  demo.app.tg.reset();
+  await page.click('#starsPay');
+  await page.waitForSelector('#starsLink');
+  assert.match(await page.getAttribute('#starsLink', 'href'), /^https:\/\/t\.me\/\$inv_/);
+  assert.equal(await page.getAttribute('#starsLink', 'target'), '_blank');
+  const inv = demo.app.tg.calls('createInvoiceLink')[0].payload;
+  assert.deepEqual(inv.prices.map((p) => p.amount), [15]);
+  const [tab] = await Promise.all([context.waitForEvent('page'), page.click('#starsLink')]);
+  await tab.close();
+  await page.waitForSelector('.modal-wrap', { state: 'detached' });
+  await demo.app.sendUpdate({
+    message: {
+      message_id: 502, date: 0, chat: { id: ME.id, type: 'private' }, from: { is_bot: false, ...ME },
+      successful_payment: { currency: 'XTR', total_amount: 15, invoice_payload: inv.payload, telegram_payment_charge_id: 'ui-charge-web', provider_payment_charge_id: '' },
+    },
+  });
+  await page.waitForFunction((b) => Number(document.querySelector('#bal').textContent.replace(/\D/g, '')) === b + 15, before, { timeout: 8000 });
+  await page.waitForSelector('.toast.ok');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('deposit by brainrots: nickname + what, request reaches the admins', { skip }, async () => {
+  const { page, errors } = await open();
+  await page.waitForSelector('.case-grid');
+  await page.click('[data-act="topup"]');
+  await page.click('[data-act="tu-brainrots"]');
+  await page.waitForSelector('#depForm');
+  await page.fill('#depForm [name=details]', 'Tralalero Tralala');
+  await page.click('#depForm button[type=submit]');
+  await page.waitForSelector('.toast.error');
+  assert.match(await page.textContent('.toast.error'), /ник в Roblox/);
+  await page.fill('#depForm [name=nick]', 'TestRoblox');
+  await page.click('#depForm button[type=submit]');
+  await page.waitForSelector('.toast.ok');
+  const row = await demo.ctx.db.one("SELECT * FROM bs_requests WHERE user_id = $1 AND kind = 'deposit' ORDER BY id DESC LIMIT 1", [ME.id]);
+  assert.equal(row.nick, 'TestRoblox');
+  assert.equal(row.details, 'Tralalero Tralala');
+  assert.equal(await page.textContent('.toast.ok'), `Заявка #${row.id} отправлена`);
+  await page.waitForSelector('.modal-wrap', { state: 'detached' });
+  // the nickname is remembered
+  await page.click('[data-act="topup"]');
+  await page.click('[data-act="tu-brainrots"]');
+  assert.equal(await page.inputValue('#depForm [name=nick]'), 'TestRoblox');
+  assert.deepEqual(errors, []);
+  await page.context().close();
+});
+
+test('withdrawal from the profile: pick brainrots, they leave the inventory', { skip }, async () => {
+  const { page, errors } = await open({ path: '/#/profile' });
+  await page.waitForSelector('.p-card');
+  const before = await page.locator('.grid.items .item').count();
+  assert.ok(before >= 2);
+  await page.click('[data-act="withdraw"]');
+  await page.waitForSelector('#wdForm');
+  assert.equal(await page.isDisabled('#wdBtn'), true);
+  assert.equal(await page.locator('[data-wd]').count(), before);
+  await page.click('[data-wd] >> nth=0');
+  await page.click('[data-wd] >> nth=1');
+  const inv = (await demo.app.get('/api/inventory', { user: ME })).body.inventory;
+  const picked = inv.slice(0, 2);
+  assert.equal(num(await page.textContent('#wdBtn')), picked[0].item.value + picked[1].item.value);
+  await page.fill('#wdForm [name=nick]', 'TestRoblox');
+  await page.click('#wdBtn');
+  await page.waitForSelector('.toast.ok');
+  await page.waitForFunction((n) => document.querySelectorAll('.grid.items .item').length === n, before - 2);
+  const row = await demo.ctx.db.one("SELECT * FROM bs_requests WHERE user_id = $1 AND kind = 'withdraw' ORDER BY id DESC LIMIT 1", [ME.id]);
+  assert.deepEqual(row.items.map((i) => i.invId).sort(), picked.map((p) => p.invId).sort());
+  assert.equal(row.total, picked[0].item.value + picked[1].item.value);
+  assert.equal((await demo.app.get('/api/inventory', { user: ME })).body.inventory.length, before - 2);
+  assert.deepEqual(errors, []);
+  await page.context().close();
+});
+
+test('admin: deposits tab — conversation with the player, coins, completion', { skip }, async () => {
+  const kira = demo.others[1];
+  const req = await demo.ctx.db.one("SELECT id FROM bs_requests WHERE user_id = $1 AND kind = 'deposit'", [kira.id]);
+  const { page, errors } = await open({ path: '/#/admin/deposits' });
+  await page.waitForSelector('#reqList .req-row');
+  await page.waitForFunction(() => document.querySelector('.chip-n[data-cnt="deposit"]')?.textContent !== '');
+  assert.ok(Number(await page.textContent('.chip-n[data-cnt="deposit"]')) >= 1);
+  assert.match(await page.textContent(`[data-req="${req.id}"]`), /KiraPlays/);
+  await page.click(`[data-req="${req.id}"]`);
+  await page.waitForSelector('#reqChat .msg');
+  assert.equal(await page.textContent('.req .form-head b'), `Пополнение #${req.id}`);
+  assert.equal(await page.textContent('.req .code'), 'KiraPlays');
+  const bubbles = () => page.locator('#reqChat .msg').allTextContents();
+  assert.match((await bubbles()).join('|'), /Добавила, ник KiraPlays/);
+
+  // admin -> player through the bot
+  demo.app.tg.reset();
+  await page.fill('#reqMsg', 'Отправил трейд, прими');
+  await page.click('#reqForm button[type=submit]');
+  await page.waitForFunction(() => [...document.querySelectorAll('#reqChat .msg.admin')].some((m) => m.textContent.includes('Отправил трейд, прими')));
+  const toKira = demo.app.tg.calls('sendMessage').find((c) => Number(c.payload.chat_id) === kira.id);
+  assert.match(toKira.payload.text, /Отправил трейд, прими/);
+  assert.equal(await page.inputValue('#reqMsg'), '', 'draft cleared after sending');
+
+  // player answers in the bot -> shows up in the open card by itself
+  await page.fill('#reqMsg', 'черновик');
+  await demo.app.sendUpdate({
+    callback_query: { id: 'cb2', from: { is_bot: false, ...kira }, chat_instance: 'x', data: `rq:${req.id}`, message: { message_id: 1, date: 0, chat: { id: kira.id, type: 'private' }, text: 'x' } },
+  });
+  await demo.app.message(kira, 'Принял, спасибо!');
+  await page.waitForFunction(() => [...document.querySelectorAll('#reqChat .msg.user')].some((m) => m.textContent.includes('Принял, спасибо!')), null, { timeout: 9000 });
+  assert.equal(await page.inputValue('#reqMsg'), 'черновик', 'typing is not lost when new messages arrive');
+
+  // credit coins — while a slow background refresh is on its way (it must not undo the result on screen)
+  const bal = (await demo.ctx.db.one('SELECT balance FROM bs_users WHERE id = $1', [kira.id])).balance;
+  let slowed = 0;
+  await page.route(/\/api\/admin\/requests\/\d+$/, async (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    // the server answers now, the answer reaches the page 6 s later
+    const response = await route.fetch();
+    slowed++;
+    await new Promise((r) => setTimeout(r, 6000));
+    await route.fulfill({ response }).catch(() => {});
+  });
+  await new Promise((r) => setTimeout(r, 5200)); // a refresh (every 5 s) is now pending
+  await page.fill('#reqAmount', '75');
+  await page.click('[data-ra="credit"]');
+  await page.click('#confirmYes');
+  await page.waitForFunction(() => [...document.querySelectorAll('#reqChat .msg.sys')].some((m) => m.textContent.includes('Начислено +75')));
+  assert.equal((await demo.ctx.db.one('SELECT balance FROM bs_users WHERE id = $1', [kira.id])).balance, bal + 75);
+  await new Promise((r) => setTimeout(r, 6500)); // the stale refresh has arrived by now
+  assert.ok(slowed >= 1, 'a refresh was in flight');
+  assert.ok((await page.textContent('#admBody')).includes('Начислено +75'), 'stale refresh did not overwrite the card');
+  assert.match(await page.textContent('.req .kv:has-text("Начислено")'), /75/);
+  await page.unroute(/\/api\/admin\/requests\/\d+$/);
+
+  // complete
+  await page.click('[data-ra="done"]');
+  await page.click('#confirmYes');
+  await page.waitForFunction(() => document.querySelector('.req .badge')?.textContent === 'Выполнена');
+  assert.equal(await page.locator('[data-ra]').count(), 0, 'no actions on a closed request');
+  assert.equal((await demo.ctx.db.one('SELECT status FROM bs_requests WHERE id = $1', [req.id])).status, 'done');
+  assert.deepEqual(errors, []);
+  await page.context().close();
+});
+
+test('admin: bot notification link opens the request (?go=…)', { skip }, async () => {
+  const wd = await demo.ctx.db.one("SELECT id FROM bs_requests WHERE kind = 'withdraw' AND status = 'new' ORDER BY id LIMIT 1");
+  const { page, errors } = await open({ path: `/?go=admin/withdrawals/${wd.id}` });
+  await page.waitForSelector('#reqChat', { state: 'attached' });
+  assert.equal(await page.textContent('.req .form-head b'), `Вывод #${wd.id}`);
+  assert.ok(!page.url().includes('go='));
+  assert.ok((await page.locator('.req .list .row').count()) >= 1, 'held brainrots listed');
+  // decline -> brainrots return to the player
+  const owner = (await demo.ctx.db.one('SELECT user_id, items FROM bs_requests WHERE id = $1', [wd.id]));
+  const invBefore = (await demo.ctx.db.one('SELECT count(*)::int AS n FROM bs_inventory WHERE user_id = $1', [owner.user_id])).n;
+  await page.click('[data-ra="rejected"]');
+  assert.match(await page.textContent('.confirm p'), /Брейнроты вернутся в инвентарь игрока/);
+  await page.click('#confirmYes');
+  await page.waitForFunction(() => document.querySelector('.req .badge')?.textContent === 'Отклонена');
+  const invAfter = (await demo.ctx.db.one('SELECT count(*)::int AS n FROM bs_inventory WHERE user_id = $1', [owner.user_id])).n;
+  assert.equal(invAfter, invBefore + owner.items.length);
+  assert.deepEqual(errors, []);
   await page.context().close();
 });
 
@@ -266,7 +500,7 @@ test('admin: edit a case price from the panel and players see it', { skip }, asy
   await page.click('#caseForm button[type=submit]');
   await page.waitForSelector('.toast.ok');
   // every admin section renders
-  for (const s of ['overview', 'items', 'users', 'promos', 'settings', 'broadcast']) {
+  for (const s of ['overview', 'deposits', 'withdrawals', 'items', 'users', 'promos', 'settings', 'broadcast']) {
     await page.evaluate((x) => (location.hash = '#/admin/' + x), s);
     await page.waitForSelector('#admBody > :not(.spinner)');
   }
@@ -372,11 +606,24 @@ test('small phones (360px): no horizontal scrolling anywhere', { skip }, async (
     return val.right <= card.right - 4;
   });
   assert.ok(fits, 'top drop value fits inside the card');
-  for (const h of ['#/cases', `#/case/${demo.bySlug.dragon.id}`, `#/case/${demo.bySlug.free.id}`, '#/upgrade', '#/profile', '#/admin/cases', `#/admin/cases/${demo.bySlug.noob.id}`, '#/admin/users', '#/admin/settings']) {
+  const reqIds = await demo.ctx.db.many('SELECT id, kind FROM bs_requests ORDER BY id');
+  const reqHashes = reqIds.map((r) => `#/admin/${r.kind === 'deposit' ? 'deposits' : 'withdrawals'}/${r.id}`);
+  for (const h of ['#/cases', `#/case/${demo.bySlug.dragon.id}`, `#/case/${demo.bySlug.free.id}`, '#/upgrade', '#/profile', '#/admin/cases', `#/admin/cases/${demo.bySlug.noob.id}`, '#/admin/users', '#/admin/settings', '#/admin/deposits', '#/admin/withdrawals', ...reqHashes]) {
     await page.evaluate((x) => (location.hash = x), h);
     await page.waitForTimeout(500);
     const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert.equal(over, 0, `${h} overflows by ${over}px`);
+  }
+  // top-up and withdrawal sheets
+  for (const steps of [['[data-act="topup"]'], ['[data-act="topup"]', '[data-act="tu-stars"]'], ['[data-act="topup"]', '[data-act="tu-brainrots"]']]) {
+    await page.evaluate(() => (location.hash = '#/cases'));
+    await page.waitForSelector('.case-grid');
+    for (const sel of steps) await page.click(sel);
+    await page.waitForTimeout(350);
+    const over = await page.evaluate(() => Math.max(document.documentElement.scrollWidth - window.innerWidth, ...[...document.querySelectorAll('.sheet *')].map((e) => e.getBoundingClientRect().right - window.innerWidth)));
+    assert.ok(over <= 0, `${steps.join(' > ')} overflows by ${over}px`);
+    await page.click('.modal-backdrop', { position: { x: 10, y: 10 } });
+    await page.waitForTimeout(300);
   }
   await page.context().close();
 });
