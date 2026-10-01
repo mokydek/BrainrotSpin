@@ -11,7 +11,8 @@ import { createUsers } from './users.js';
 import { createTg } from './tg.js';
 import { createApi, sendError } from './api.js';
 import { createAdmin } from './admin.js';
-import { createBot } from './bot.js';
+import { createBot, ALLOWED_UPDATES } from './bot.js';
+import { createRequests } from './requests.js';
 import { GameError } from './game.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -66,10 +67,11 @@ export async function createServer(env = process.env, overrides = {}) {
   await game.reloadCatalog();
   await live.init();
   const users = createUsers({ db, settings, config });
+  const requests = createRequests({ db, settings, game, tg, config });
 
   let botPart = null;
   if (config.botToken && config.botMode !== 'off') {
-    botPart = createBot({ config, db, settings, game, users, live, paths });
+    botPart = createBot({ config, db, settings, game, users, live, paths, requests });
     holder.bot = botPart.bot;
   }
 
@@ -84,12 +86,12 @@ export async function createServer(env = process.env, overrides = {}) {
 
   if (botPart) app.post(config.webhookPath, express.json({ limit: '1mb' }), botPart.webhookHandler);
 
-  const { router, auth } = createApi({ config, db, settings, game, live, users, tg });
+  const { router, auth } = createApi({ config, db, settings, game, live, users, tg, requests });
   app.use(
     '/api/admin',
     express.json({ limit: '1mb' }),
     auth,
-    createAdmin({ db, settings, game, live, tg, broadcaster: botPart ? botPart.broadcaster : noBroadcaster }),
+    createAdmin({ db, settings, game, live, tg, requests, broadcaster: botPart ? botPart.broadcaster : noBroadcaster }),
   );
   app.use('/api', express.json({ limit: '64kb' }), router);
   app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
@@ -108,7 +110,7 @@ export async function createServer(env = process.env, overrides = {}) {
   app.use((err, req, res, next) => sendError(res, err));
 
   let server = null;
-  const ctx = { config, db, settings, game, live, users, tg, bot: botPart, app };
+  const ctx = { config, db, settings, game, live, users, tg, requests, bot: botPart, app };
 
   ctx.start = async (port = config.port) => {
     await new Promise((resolve) => {
@@ -122,7 +124,7 @@ export async function createServer(env = process.env, overrides = {}) {
         if (config.botMode === 'webhook') await botPart.setupWebhook();
         else if (config.botMode === 'polling') {
           await botPart.bot.api.deleteWebhook();
-          botPart.bot.start({ allowed_updates: ['message', 'callback_query', 'my_chat_member'] }).catch((e) =>
+          botPart.bot.start({ allowed_updates: ALLOWED_UPDATES }).catch((e) =>
             console.error('[bot] polling stopped:', e.message),
           );
         }

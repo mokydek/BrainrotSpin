@@ -45,6 +45,31 @@ export const TEXTS = {
     cmdStart: 'Главное меню',
     shareCaption: '🎁 Залетай в BrainrotSpin — открывай кейсы с брейнротами из «Steal a Brainrot»!',
     shareButton: '🎮 Играть',
+    btnWrite: '✍️ Написать',
+    btnReply: '✍️ Ответить',
+    btnOpenRequest: '📂 Открыть заявку',
+    depositCreated: (id, nick, details) =>
+      `📥 Заявка на пополнение #${id} принята.\n\nНик в Roblox: ${nick}\nЧто пополняешь: ${details}\n\nАдминистратор свяжется с тобой в этом чате.`,
+    withdrawCreated: (id, nick, items, total) =>
+      `📤 Заявка на вывод #${id} принята.\n\nНик в Roblox: ${nick}\nБрейнроты: ${items}\nНа сумму: ${fmt(total, 'ru')} 🪙\n\nАдминистратор свяжется с тобой в этом чате.`,
+    adminMsg: (id, text) => `💬 Администратор по заявке #${id}:\n\n${text}`,
+    replyAsk: (id) => `✍️ Напиши сообщение по заявке #${id}:`,
+    replySent: '✅ Сообщение отправлено администратору.',
+    reqClosed: (id) => `⚠️ Заявка #${id} уже закрыта.`,
+    depositDone: (id, coins, items) =>
+      `✅ Заявка на пополнение #${id} выполнена.` +
+      (coins ? `\nЗачислено: +${fmt(coins, 'ru')} 🪙` : '') +
+      (items ? `\nВыдано: ${items}` : ''),
+    withdrawDone: (id) => `✅ Вывод по заявке #${id} выполнен.`,
+    rejected: (id, kind) => `❌ Заявка #${id} отклонена.` + (kind === 'withdraw' ? '\nБрейнроты вернулись в инвентарь.' : ''),
+    starsOk: (coins, balance) => `✅ Оплата получена: +${fmt(coins, 'ru')} 🪙\nБаланс: ${fmt(balance, 'ru')} 🪙`,
+    invoiceTitle: 'Пополнение баланса',
+    invoiceDesc: (coins) => `${fmt(coins, 'ru')} монет в BrainrotSpin`,
+    invoiceLabel: (coins) => `${fmt(coins, 'ru')} монет`,
+    payCheckFailed: 'Платёж не прошёл проверку. Создай новый счёт в приложении.',
+    aNewDeposit: (id, who, nick, details) => `🆕 Пополнение #${id}\n\n👤 ${who}\n🎮 Ник: ${nick}\n📝 ${details}`,
+    aNewWithdraw: (id, who, nick, items, total) => `🆕 Вывод #${id}\n\n👤 ${who}\n🎮 Ник: ${nick}\n🧠 ${items}\n💰 ${fmt(total, 'ru')} 🪙`,
+    aUserReply: (id, who, text) => `💬 Заявка #${id} — ${who}:\n\n${text}`,
   },
   uk: {
     welcome:
@@ -78,6 +103,31 @@ export const TEXTS = {
     cmdStart: 'Головне меню',
     shareCaption: '🎁 Залітай у BrainrotSpin — відкривай кейси з брейнротами зі «Steal a Brainrot»!',
     shareButton: '🎮 Грати',
+    btnWrite: '✍️ Написати',
+    btnReply: '✍️ Відповісти',
+    btnOpenRequest: '📂 Відкрити заявку',
+    depositCreated: (id, nick, details) =>
+      `📥 Заявку на поповнення #${id} прийнято.\n\nНік у Roblox: ${nick}\nЩо поповнюєш: ${details}\n\nАдміністратор зв'яжеться з тобою в цьому чаті.`,
+    withdrawCreated: (id, nick, items, total) =>
+      `📤 Заявку на виведення #${id} прийнято.\n\nНік у Roblox: ${nick}\nБрейнроти: ${items}\nНа суму: ${fmt(total, 'uk')} 🪙\n\nАдміністратор зв'яжеться з тобою в цьому чаті.`,
+    adminMsg: (id, text) => `💬 Адміністратор щодо заявки #${id}:\n\n${text}`,
+    replyAsk: (id) => `✍️ Напиши повідомлення щодо заявки #${id}:`,
+    replySent: '✅ Повідомлення надіслано адміністратору.',
+    reqClosed: (id) => `⚠️ Заявку #${id} вже закрито.`,
+    depositDone: (id, coins, items) =>
+      `✅ Заявку на поповнення #${id} виконано.` +
+      (coins ? `\nЗараховано: +${fmt(coins, 'uk')} 🪙` : '') +
+      (items ? `\nВидано: ${items}` : ''),
+    withdrawDone: (id) => `✅ Виведення за заявкою #${id} виконано.`,
+    rejected: (id, kind) => `❌ Заявку #${id} відхилено.` + (kind === 'withdraw' ? '\nБрейнроти повернулися в інвентар.' : ''),
+    starsOk: (coins, balance) => `✅ Оплату отримано: +${fmt(coins, 'uk')} 🪙\nБаланс: ${fmt(balance, 'uk')} 🪙`,
+    invoiceTitle: 'Поповнення балансу',
+    invoiceDesc: (coins) => `${fmt(coins, 'uk')} монет у BrainrotSpin`,
+    invoiceLabel: (coins) => `${fmt(coins, 'uk')} монет`,
+    payCheckFailed: 'Платіж не пройшов перевірку. Створи новий рахунок у застосунку.',
+    aNewDeposit: (id, who, nick, details) => `🆕 Поповнення #${id}\n\n👤 ${who}\n🎮 Нік: ${nick}\n📝 ${details}`,
+    aNewWithdraw: (id, who, nick, items, total) => `🆕 Виведення #${id}\n\n👤 ${who}\n🎮 Нік: ${nick}\n🧠 ${items}\n💰 ${fmt(total, 'uk')} 🪙`,
+    aUserReply: (id, who, text) => `💬 Заявка #${id} — ${who}:\n\n${text}`,
   },
   en: {
     welcome:
@@ -111,6 +161,31 @@ export const TEXTS = {
     cmdStart: 'Main menu',
     shareCaption: '🎁 Jump into BrainrotSpin — open cases with brainrots from «Steal a Brainrot»!',
     shareButton: '🎮 Play',
+    btnWrite: '✍️ Write',
+    btnReply: '✍️ Reply',
+    btnOpenRequest: '📂 Open request',
+    depositCreated: (id, nick, details) =>
+      `📥 Deposit request #${id} received.\n\nRoblox nickname: ${nick}\nWhat you deposit: ${details}\n\nAn admin will contact you in this chat.`,
+    withdrawCreated: (id, nick, items, total) =>
+      `📤 Withdrawal request #${id} received.\n\nRoblox nickname: ${nick}\nBrainrots: ${items}\nTotal: ${fmt(total, 'en')} 🪙\n\nAn admin will contact you in this chat.`,
+    adminMsg: (id, text) => `💬 Admin about request #${id}:\n\n${text}`,
+    replyAsk: (id) => `✍️ Write your message about request #${id}:`,
+    replySent: '✅ Message sent to the admin.',
+    reqClosed: (id) => `⚠️ Request #${id} is already closed.`,
+    depositDone: (id, coins, items) =>
+      `✅ Deposit request #${id} completed.` +
+      (coins ? `\nCredited: +${fmt(coins, 'en')} 🪙` : '') +
+      (items ? `\nGiven: ${items}` : ''),
+    withdrawDone: (id) => `✅ Withdrawal #${id} completed.`,
+    rejected: (id, kind) => `❌ Request #${id} was declined.` + (kind === 'withdraw' ? '\nThe brainrots are back in your inventory.' : ''),
+    starsOk: (coins, balance) => `✅ Payment received: +${fmt(coins, 'en')} 🪙\nBalance: ${fmt(balance, 'en')} 🪙`,
+    invoiceTitle: 'Balance top-up',
+    invoiceDesc: (coins) => `${fmt(coins, 'en')} coins in BrainrotSpin`,
+    invoiceLabel: (coins) => `${fmt(coins, 'en')} coins`,
+    payCheckFailed: 'The payment did not pass the check. Create a new invoice in the app.',
+    aNewDeposit: (id, who, nick, details) => `🆕 Deposit #${id}\n\n👤 ${who}\n🎮 Nickname: ${nick}\n📝 ${details}`,
+    aNewWithdraw: (id, who, nick, items, total) => `🆕 Withdrawal #${id}\n\n👤 ${who}\n🎮 Nickname: ${nick}\n🧠 ${items}\n💰 ${fmt(total, 'en')} 🪙`,
+    aUserReply: (id, who, text) => `💬 Request #${id} — ${who}:\n\n${text}`,
   },
 };
 

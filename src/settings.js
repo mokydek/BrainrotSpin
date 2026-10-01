@@ -14,6 +14,7 @@ export const SETTINGS_SCHEMA = {
   upgrade_min_chance: { type: 'number', min: 0.01, max: 50, def: 1 },
   upgrade_max_chance: { type: 'number', min: 1, max: 95, def: 80 },
   start_balance: { type: 'number', min: 0, max: 1_000_000, def: 0, int: true },
+  stars_rate: { type: 'number', min: 0.01, max: 1_000_000, def: 1 }, // coins for 1 Telegram Star
   welcome_ru: { type: 'string', max: 1000, def: '' },
   welcome_uk: { type: 'string', max: 1000, def: '' },
   welcome_en: { type: 'string', max: 1000, def: '' },

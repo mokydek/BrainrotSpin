@@ -47,7 +47,7 @@ function imageData(v) {
   return v;
 }
 
-export function createAdmin({ db, settings, game, live, tg, broadcaster }) {
+export function createAdmin({ db, settings, game, live, tg, requests, broadcaster }) {
   const r = express.Router();
   r.use((req, res, next) => (req.user && req.user.is_admin ? next() : res.status(403).json({ error: 'forbidden' })));
 
@@ -484,6 +484,21 @@ export function createAdmin({ db, settings, game, live, tg, broadcaster }) {
       return { status };
     }),
   );
+
+  // ------------------------------------------------------------ deposits & withdrawals
+  const reqId = (req) => int(Number(req.params.id), 1, Number.MAX_SAFE_INTEGER, 'id');
+  r.get(
+    '/requests',
+    wrap(async (req) => ({
+      requests: await requests.list({ kind: String(req.query.kind || ''), scope: req.query.scope === 'all' ? 'all' : 'open' }),
+    })),
+  );
+  r.get('/requests/counts', wrap(async () => ({ counts: await requests.counts() })));
+  r.get('/requests/:id', wrap(async (req) => requests.detail(reqId(req))));
+  r.post('/requests/:id/messages', wrap(async (req) => requests.adminMessage(req.user, reqId(req), (req.body || {}).text)));
+  r.post('/requests/:id/credit', wrap(async (req) => requests.credit(req.user, reqId(req), (req.body || {}).amount)));
+  r.post('/requests/:id/give', wrap(async (req) => requests.give(req.user, reqId(req), (req.body || {}).itemId)));
+  r.post('/requests/:id/status', wrap(async (req) => requests.setStatus(req.user, reqId(req), (req.body || {}).status)));
 
   return r;
 }
