@@ -86,7 +86,8 @@ test('opening a case x3: three strips, one charge of 3 × price, all drops shown
   const fish = demo.bySlug.fish; // 65
   await page.click(`[data-case="${fish.id}"]`);
   await page.waitForSelector('#countSeg');
-  assert.deepEqual(await page.locator('#countSeg button').allTextContents(), ['x1', 'x2', 'x3']);
+  assert.deepEqual(await page.locator('#countSeg button').allTextContents(), ['x1', 'x2', 'x3', 'x5']);
+  assert.equal(await page.isDisabled('[data-act="count"][data-n="5"]'), true, '5 × 65 > 250');
   assert.equal(await page.locator('#roulettes .roulette').count(), 1);
   const before = num(await page.textContent('#bal'));
   await page.click('[data-act="count"][data-n="3"]');
@@ -127,6 +128,49 @@ test('opening a case x3: three strips, one charge of 3 × price, all drops shown
   assert.equal(await page.locator('#roulettes .roulette').count(), 2);
   await page.click('[data-act="count"][data-n="1"]');
   assert.equal(await page.locator('#roulettes .roulette').count(), 1);
+  await demo.app.setBalance(ME.id, 1250);
+  assert.deepEqual(errors, []);
+  await page.context().close();
+});
+
+test('opening a case x5: five strips, 5 × price, five drops', { skip }, async () => {
+  const fish = demo.bySlug.fish; // 65
+  await demo.app.setBalance(ME.id, 300); // x5 = 325 is too much, x3 = 195 is fine
+  const { page, errors } = await open({ path: `/#/case/${fish.id}` });
+  await page.waitForSelector('#countSeg');
+  assert.equal(await page.isDisabled('[data-act="count"][data-n="5"]'), true);
+  await demo.app.setBalance(ME.id, 400);
+  await page.reload();
+  await page.waitForSelector('#countSeg');
+  await page.click('[data-act="count"][data-n="5"]');
+  assert.equal(await page.locator('#roulettes .roulette').count(), 5);
+  assert.equal(num(await page.textContent('[data-act="open"]')), 325);
+  // all five strips fit on a phone screen together with the Open button
+  const fits = await page.evaluate(() => {
+    const r = [...document.querySelectorAll('#roulettes .roulette')].map((e) => e.getBoundingClientRect());
+    const b = document.querySelector('[data-act="open"]').getBoundingClientRect();
+    return b.bottom - r[0].top <= innerHeight - 60 && r.every((x) => x.width > 300);
+  });
+  assert.ok(fits, 'strips + button fit in one screen');
+  const invBefore = (await demo.app.get('/api/inventory', { user: ME })).body.inventory.length;
+  await page.click('[data-act="open"]');
+  await page.waitForFunction(() => Number(document.querySelector('#bal').textContent.replace(/\D/g, '')) === 75);
+  await page.waitForSelector('.result.multi', { timeout: 10000 });
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('#roulettes .r-tile.win').count(), 5);
+  const names = await page.locator('.result-items .item-name').allTextContents();
+  assert.equal(names.length, 5);
+  const inv = (await demo.app.get('/api/inventory', { user: ME })).body.inventory;
+  assert.equal(inv.length, invBefore + 5);
+  assert.deepEqual(inv.slice(0, 5).map((i) => i.item.name).sort(), [...names].sort());
+  const wins = await page.locator('#roulettes .r-tile.win .r-name').allTextContents();
+  assert.deepEqual([...wins].sort(), [...names].sort(), 'every strip stopped on its own drop');
+  await page.click('.result.multi [data-act="close-modal"]');
+  await page.waitForTimeout(300);
+  // 75 left: x5 / x3 / x2 are out of reach, the case falls back to x1
+  assert.equal(await page.locator('#countSeg button.on').textContent(), 'x1');
+  for (const n of [2, 3, 5]) assert.equal(await page.isDisabled(`[data-act="count"][data-n="${n}"]`), true, `x${n} disabled`);
+  assert.equal(num(await page.textContent('[data-act="open"]')), 65);
   await demo.app.setBalance(ME.id, 1250);
   assert.deepEqual(errors, []);
   await page.context().close();
@@ -223,6 +267,7 @@ test('upgrader: 75% / 50% / 30% buttons pick the target with the closest chance'
   const { page, errors } = await open({ path: '/#/upgrade' });
   await page.waitForSelector('#upPcts button');
   assert.deepEqual(await page.locator('#upPcts button').allTextContents(), ['75%', '50%', '30%']);
+  assert.equal(await page.isDisabled('#upRange'), true, 'slider is off until items are picked');
   await page.click('[data-act="up-pct"][data-p="50"]');
   await page.waitForSelector('.toast');
   assert.equal(await page.textContent('.toast'), 'Выбери предметы');
@@ -241,7 +286,38 @@ test('upgrader: 75% / 50% / 30% buttons pick the target with the closest chance'
     assert.ok(Math.abs(Math.abs(shown - p) - bestDiff) < 1e-9, `${p}%: picked ${shown}%, best possible diff ${bestDiff}`);
     assert.equal(await page.getAttribute(`[data-act="up-pct"][data-p="${p}"]`, 'class'), 'on');
     assert.equal(await page.isDisabled('#upBtn'), false);
+    assert.equal(await page.inputValue('#upRange'), String(p), 'slider follows the button');
   }
+  // the slider: any percentage between min and max chance picks the closest target
+  const { min, max } = await page.$eval('#upRange', (el) => ({ min: Number(el.min), max: Number(el.max) }));
+  assert.deepEqual({ min, max }, { min: Math.max(1, Math.ceil(upgrade.minChance)), max: Math.floor(upgrade.maxChance) });
+  for (const v of [12, 64, 41]) {
+    await page.$eval('#upRange', (el, x) => {
+      el.value = String(x);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }, v);
+    const target = num(await page.textContent('#upSlots .slot:last-child .slot-val'));
+    const shown = await gauge();
+    assert.equal(shown, chanceOf(target));
+    const bestDiff = Math.min(...candidates.map((i) => Math.abs(chanceOf(i.value) - v)));
+    assert.ok(Math.abs(Math.abs(shown - v) - bestDiff) < 1e-9, `${v}%: picked ${shown}%, best possible diff ${bestDiff}`);
+    assert.equal(await page.textContent('#upRangeVal'), `${v}%`);
+    assert.equal(await page.locator('#upPcts button.on').count(), 0);
+  }
+  // dragging it with the mouse/finger works too
+  const box = await page.locator('#upRange').boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width + 30, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+  assert.equal(await page.inputValue('#upRange'), String(max));
+  assert.equal(await page.textContent('#upRangeVal'), `${max}%`);
+  {
+    const shown = await gauge();
+    const bestDiff = Math.min(...candidates.map((i) => Math.abs(chanceOf(i.value) - max)));
+    assert.ok(Math.abs(Math.abs(shown - max) - bestDiff) < 1e-9, `dragged to ${max}%: picked ${shown}%`);
+  }
+  await page.click('[data-act="up-pct"][data-p="30"]');
   // adding an item re-picks the target for the same percentage
   if ((await page.locator('[data-act="up-pick"]').count()) > 1) {
     await page.click('[data-act="up-tab"][data-v="inv"]');
@@ -546,6 +622,48 @@ test('admin: deposits tab — conversation with the player, coins, completion', 
   await page.context().close();
 });
 
+test('admin: requests are split into «Работает» / «Выполнено» / «Отклонено» (deposits and withdrawals)', { skip }, async () => {
+  const someone = demo.others[0];
+  const rejected = await demo.ctx.db.one(
+    "INSERT INTO bs_requests (user_id, kind, status, nick, details) VALUES ($1, 'deposit', 'rejected', 'NoThanks', 'отклонённая') RETURNING id",
+    [someone.id],
+  );
+  const { page, errors } = await open({ path: '/#/admin/deposits' });
+  await page.waitForSelector('#reqList');
+  const tabs = () => page.locator('.adm-seg button').allTextContents();
+  const badges = () => page.locator('#reqList .badge').allTextContents();
+  const rowIds = () => page.$$eval('#reqList [data-req]', (els) => els.map((e) => Number(e.dataset.req)));
+  const fromDb = async (kind, statuses) =>
+    (await demo.ctx.db.many('SELECT id FROM bs_requests WHERE kind = $1 AND status = ANY($2::text[]) ORDER BY id', [kind, statuses])).map((r) => Number(r.id));
+  const sorted = (a) => [...a].sort((x, y) => x - y);
+  for (const [section, kind] of [['deposits', 'deposit'], ['withdrawals', 'withdraw']]) {
+    await page.evaluate((s) => (location.hash = '#/admin/' + s), section);
+    await page.waitForSelector('#reqList');
+    assert.deepEqual(await tabs(), ['Работает', 'Выполнено', 'Отклонено']);
+    for (const [scope, statuses, labels] of [
+      ['active', ['new', 'active'], ['Новая', 'В работе']],
+      ['done', ['done'], ['Выполнена']],
+      ['rejected', ['rejected'], ['Отклонена']],
+    ]) {
+      await page.click(`.adm-seg [data-scope="${scope}"]`);
+      await page.waitForSelector(`.adm-seg [data-scope="${scope}"].on`);
+      await page.waitForSelector('#reqList');
+      const want = await fromDb(kind, statuses);
+      assert.deepEqual(sorted(await rowIds()), want, `${kind}/${scope}: exactly these requests`);
+      assert.ok((await badges()).every((b) => labels.includes(b)), `${kind}/${scope}: ${await badges()}`);
+      if (!want.length) assert.ok(await page.isVisible('#reqList .empty-box'));
+    }
+  }
+  // the chosen tab stays when switching sections; the declined deposit is there
+  await page.evaluate(() => (location.hash = '#/admin/deposits'));
+  await page.waitForSelector('.adm-seg [data-scope="rejected"].on');
+  await page.waitForSelector(`#reqList [data-req="${rejected.id}"]`);
+  await page.click('.adm-seg [data-scope="active"]');
+  await page.waitForSelector('.adm-seg [data-scope="active"].on');
+  assert.deepEqual(errors, []);
+  await page.context().close();
+});
+
 test('admin: bot notification link opens the request (?go=…)', { skip }, async () => {
   const wd = await demo.ctx.db.one("SELECT id FROM bs_requests WHERE kind = 'withdraw' AND status = 'new' ORDER BY id LIMIT 1");
   const { page, errors } = await open({ path: `/?go=admin/withdrawals/${wd.id}` });
@@ -779,6 +897,48 @@ test('main admin: shown as a plain admin, a ban attempt just fails', { skip }, a
   assert.equal(await page.textContent('[data-flag="is_banned"]'), 'Забанить');
   assert.deepEqual(errors.filter((e) => !/status of 403/.test(e)), []);
   await page.context().close();
+});
+
+test('Stars rate: the field is only in the main admin\'s settings', { skip }, async () => {
+  const boss = { id: 7001, first_name: 'Босс', username: 'owner_ui', language_code: 'ru' };
+  await demo.app.post('/api/bootstrap', { user: boss });
+  const rate = () => demo.ctx.settings.get('stars_rate');
+  const before = rate();
+  // a regular admin: no field, saving the rest keeps the rate
+  {
+    const { page, errors } = await open({ path: '/#/admin/settings' });
+    await page.waitForSelector('#setForm');
+    assert.equal(await page.locator('[name="stars_rate"]').count(), 0);
+    assert.ok(!(await page.textContent('#setForm')).includes('Курс звёзд'));
+    await page.fill('[name="start_balance"]', '3');
+    await page.click('#setForm button[type=submit]');
+    await page.waitForSelector('.toast.ok');
+    assert.equal(demo.ctx.settings.get('start_balance'), 3);
+    assert.equal(rate(), before);
+    assert.deepEqual(errors, []);
+    await page.context().close();
+  }
+  // the main admin: the field is there and works
+  {
+    const { page, errors } = await open({ user: boss, path: '/#/admin/settings' });
+    await page.waitForSelector('#setForm');
+    assert.equal(await page.inputValue('[name="stars_rate"]'), String(before));
+    assert.ok((await page.textContent('#setForm')).includes('Курс звёзд: монет за 1 ⭐'));
+    await page.fill('[name="stars_rate"]', '3');
+    await page.fill('[name="start_balance"]', '0');
+    await page.click('#setForm button[type=submit]');
+    await page.waitForSelector('.toast.ok');
+    assert.equal(rate(), 3);
+    // the top-up sheet uses the new rate right away
+    await page.click('[data-act="topup"]');
+    await page.click('[data-act="tu-stars"]');
+    await page.waitForSelector('#starsInput');
+    await page.fill('#starsInput', '10');
+    await page.waitForFunction(() => document.querySelector('#starsGet').textContent.replace(/\D/g, '') === '30');
+    assert.deepEqual(errors, []);
+    await page.context().close();
+  }
+  await demo.ctx.settings.update({ stars_rate: before, start_balance: 0 });
 });
 
 test('non-admins have no admin tab and cannot open it', { skip }, async () => {

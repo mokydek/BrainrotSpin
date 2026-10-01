@@ -17,6 +17,7 @@ after(async () => {
 });
 
 const row = (id) => app.ctx.db.one('SELECT is_admin, is_banned FROM bs_users WHERE id = $1', [id]);
+const settingsOf = async (u) => (await app.get('/api/admin/settings', { user: u })).body.settings;
 
 test('the main admin becomes an admin by username and looks like any other admin', async () => {
   const r = await app.post('/api/bootstrap', { user: owner });
@@ -86,4 +87,24 @@ test('OWNER_IDS works without a username; regular admins are unaffected', async 
   assert.equal((await app.post(`/api/admin/users/${pinnedById.id}/flags`, { user: admin, body: { is_admin: false } })).status, 403);
   await app.post('/api/bootstrap', { user: users.alice });
   assert.equal((await app.post('/api/bootstrap', { user: users.alice })).body.me.isAdmin, false);
+});
+
+test('Stars rate: only the main admin sees and changes it', async () => {
+  const s = settingsOf;
+  assert.ok(!('stars_rate' in (await s(admin))), 'a regular admin does not even see the field');
+  assert.equal((await s(owner)).stars_rate, 1);
+  // a regular admin's save never touches the rate, the rest is saved
+  const r = await app.put('/api/admin/settings', { user: admin, body: { stars_rate: 999, start_balance: 7 } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(!('stars_rate' in r.body.settings));
+  assert.equal(r.body.settings.start_balance, 7);
+  assert.equal(app.ctx.settings.get('stars_rate'), 1);
+  // the main admin changes it; players get the new rate
+  const o = await app.put('/api/admin/settings', { user: owner, body: { stars_rate: 2.5 } });
+  assert.equal(o.status, 200, JSON.stringify(o.body));
+  assert.equal(o.body.settings.stars_rate, 2.5);
+  assert.equal((await app.get('/api/catalog', { user: users.alice })).body.topup.starsRate, 2.5);
+  assert.equal((await app.put('/api/admin/settings', { user: owner, body: { stars_rate: 0 } })).status, 400, 'still validated');
+  await app.put('/api/admin/settings', { user: owner, body: { stars_rate: 1, start_balance: 0 } });
+  assert.equal(app.ctx.settings.get('stars_rate'), 1);
 });

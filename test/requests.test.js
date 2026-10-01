@@ -447,3 +447,32 @@ test('blocked bot: the admin sees the message was not delivered', async () => {
   assert.equal(r.body.request.user.blockedBot, true);
   assert.equal((await app.post(`/api/admin/requests/${r0.body.request.id}/messages`, { user: admin, body: { text: '' } })).status, 400);
 });
+
+test('admin tabs: in progress / done / declined show only their own requests', async () => {
+  await freshWindow();
+  const rej = await app.post('/api/requests/deposit', { user: player, body: { nick: 'AliceR', details: 'Tralalero' } });
+  assert.equal(rej.status, 200, JSON.stringify(rej.body));
+  assert.equal((await app.post(`/api/admin/requests/${rej.body.request.id}/status`, { user: admin, body: { status: 'rejected' } })).status, 200);
+  const ids = (list) => list.map((r) => r.id).sort((a, b) => a - b);
+  for (const kind of ['deposit', 'withdraw']) {
+    const all = (await app.get(`/api/admin/requests?kind=${kind}&scope=all`, { user: admin })).body.requests;
+    const by = {};
+    for (const scope of ['active', 'done', 'rejected']) {
+      const r = await app.get(`/api/admin/requests?kind=${kind}&scope=${scope}`, { user: admin });
+      assert.equal(r.status, 200);
+      by[scope] = r.body.requests;
+    }
+    assert.ok(by.active.every((r) => r.status === 'new' || r.status === 'active'), `${kind}: in progress`);
+    assert.ok(by.done.every((r) => r.status === 'done'), `${kind}: done`);
+    assert.ok(by.rejected.every((r) => r.status === 'rejected'), `${kind}: declined`);
+    assert.deepEqual(ids([...by.active, ...by.done, ...by.rejected]), ids(all), `${kind}: the three tabs cover every request once`);
+    // no scope = in progress (the default tab)
+    assert.deepEqual(ids((await app.get(`/api/admin/requests?kind=${kind}`, { user: admin })).body.requests), ids(by.active));
+    if (kind === 'deposit') {
+      for (const s of ['active', 'done', 'rejected']) assert.ok(by[s].length > 0, `deposit test data has ${s} requests`);
+      assert.ok(by.rejected.some((r) => r.id === rej.body.request.id));
+      assert.ok(by.done.some((r) => r.method === 'stars'), 'paid Stars deposits are under "done"');
+    }
+  }
+  assert.equal((await app.get('/api/admin/requests?kind=deposit&scope=bogus', { user: admin })).status, 400);
+});
