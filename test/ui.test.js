@@ -874,6 +874,65 @@ test('admin: case picture upload shows on the case card, removal brings the ches
   await page.context().close();
 });
 
+test('admin: the player card shows where each brainrot came from', { skip }, async () => {
+  const p = demo.others[2];
+  const items = [...demo.ctx.game.catalog.items.values()];
+  const byName = (n) => items.find((i) => i.name === n);
+  const noob = demo.bySlug.noob;
+  await demo.app.setBalance(p.id, 1000);
+  const opened = await demo.app.post(`/api/case/${noob.id}/open`, { user: p });
+  assert.equal(opened.status, 200, JSON.stringify(opened.body));
+  const gift = await demo.app.post(`/api/admin/users/${p.id}/give`, { user: ME, body: { itemId: byName('Tim Cheese').id } });
+  const target = byName('Spooky and Pumpky');
+  const up = await demo.ctx.db.one(
+    'INSERT INTO bs_upgrades (user_id, bet_value, target_item_id, chance, roll, won) VALUES ($1, 287, $2, 64.57, 12.5, TRUE) RETURNING id',
+    [p.id, target.id],
+  );
+  const row = async (source, itemId, ref) =>
+    (await demo.ctx.db.one('INSERT INTO bs_inventory (user_id, item_id, source, ref_id) VALUES ($1, $2, $3, $4) RETURNING id', [p.id, itemId, source, ref])).id;
+  const upInv = await row('upgrade', target.id, up.id);
+  const dep = await demo.ctx.db.one("SELECT id FROM bs_requests WHERE kind = 'deposit' ORDER BY id LIMIT 1");
+  const depInv = await row('deposit', byName('Cerberus').id, dep.id);
+  const wd = await demo.ctx.db.one("SELECT id FROM bs_requests WHERE kind = 'withdraw' ORDER BY id LIMIT 1");
+  const refInv = await row('refund', byName('Capitano Moby').id, wd.id);
+
+  const { page, errors } = await open({ path: `/#/admin/users/${p.id}` });
+  await page.waitForSelector('.inv-src');
+  const src = (invId) => page.textContent(`.row:has([data-inv="${invId}"]) .inv-src`);
+  const when = / · \d{1,2} [а-я]+\.?, \d{2}:\d{2}$/;
+  const caseName = demo.ctx.game.catalog.cases.get(noob.id).name_ru;
+  assert.match(await src(opened.body.invId), new RegExp(`^${caseName}${when.source}`), 'the name already says «кейс»');
+  // a case named without the word gets «Кейс «…»»
+  await demo.ctx.db.query("UPDATE bs_cases SET name_ru = 'Сокровища' WHERE id = $1", [noob.id]);
+  await page.reload();
+  await page.waitForSelector('.inv-src');
+  assert.match(await src(opened.body.invId), new RegExp(`^Кейс «Сокровища»${when.source}`));
+  await demo.ctx.db.query('UPDATE bs_cases SET name_ru = $2 WHERE id = $1', [noob.id, caseName]);
+  assert.match(await src(gift.body.invId), new RegExp(`^Выдал админ ${ME.first_name}${when.source}`));
+  assert.match(await src(upInv), new RegExp(`^Апгрейдер · шанс 64,57% · ставка\\s*287${when.source}`));
+  assert.match(await src(depInv), new RegExp(`^Пополнение #${dep.id}${when.source}`));
+  assert.match(await src(refInv), new RegExp(`^Возврат с вывода #${wd.id}${when.source}`));
+  // the request number opens the request
+  await page.click(`.row:has([data-inv="${depInv}"]) .src-link`);
+  await page.waitForSelector('.req .form-head b');
+  assert.equal(await page.textContent('.req .form-head b'), `Пополнение #${dep.id}`);
+  await page.goBack();
+  await page.waitForSelector('.inv-src');
+  // English admin panel
+  await page.evaluate(() => (location.hash = '#/profile'));
+  await page.click('[data-act="lang"]');
+  await page.click('[data-lang="en"]');
+  await page.evaluate((id) => (location.hash = '#/admin/users/' + id), p.id);
+  await page.waitForSelector('.inv-src');
+  const en = demo.ctx.game.catalog.cases.get(noob.id).name_en;
+  assert.ok((await src(opened.body.invId)).startsWith(en));
+  assert.ok((await src(upInv)).startsWith('Upgrader · 64.57% chance · bet'));
+  await page.click('[data-act="lang"]');
+  await page.click('[data-lang="ru"]');
+  assert.deepEqual(errors, []);
+  await page.context().close();
+});
+
 test('main admin: shown as a plain admin, a ban attempt just fails', { skip }, async () => {
   const boss = { id: 7001, first_name: 'Босс', username: 'owner_ui', language_code: 'ru' };
   await demo.app.post('/api/bootstrap', { user: boss });

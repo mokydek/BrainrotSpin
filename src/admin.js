@@ -1,6 +1,6 @@
 import express from 'express';
 import crypto from 'node:crypto';
-import { GameError } from './game.js';
+import { GameError, displayName } from './game.js';
 import { RARITIES, rarityOf } from './rarity.js';
 import { wrap } from './api.js';
 import { meView } from './api.js';
@@ -396,6 +396,33 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
     }),
   );
 
+  /** The player's brainrots with where each one came from (case, upgrade, request, admin…). */
+  async function inventoryWithSources(userId) {
+    const rows = await db.many(
+      `SELECT v.id, v.item_id, v.created_at, v.source, v.case_id, v.ref_id,
+              c.name_ru, c.name_uk, c.name_en, up.chance, up.bet_value,
+              a.id AS admin_id, a.first_name AS admin_first, a.username AS admin_username
+         FROM bs_inventory v
+         LEFT JOIN bs_cases c ON c.id = v.case_id
+         LEFT JOIN bs_upgrades up ON v.source = 'upgrade' AND up.id = v.ref_id
+         LEFT JOIN bs_users a ON v.source = 'admin' AND a.id = v.ref_id
+        WHERE v.user_id = $1 ORDER BY v.id DESC LIMIT 1000`,
+      [userId],
+    );
+    const out = [];
+    for (const r of rows) {
+      const item = game.catalog.items.get(r.item_id);
+      if (!item) continue;
+      const from = { type: r.source };
+      if (r.case_id) from.case = { id: r.case_id, name: { ru: r.name_ru, uk: r.name_uk, en: r.name_en } };
+      if (r.source === 'upgrade' && r.chance !== null) from.upgrade = { chance: Number(r.chance), bet: Number(r.bet_value) };
+      if ((r.source === 'deposit' || r.source === 'refund') && r.ref_id) from.requestId = Number(r.ref_id);
+      if (r.source === 'admin' && r.admin_id) from.admin = { id: Number(r.admin_id), name: displayName({ id: r.admin_id, first_name: r.admin_first, username: r.admin_username }) };
+      out.push({ invId: Number(r.id), at: r.created_at, item: game.publicItem(item), from });
+    }
+    return out;
+  }
+
   async function loadUser(id) {
     const u = await db.one('SELECT * FROM bs_users WHERE id = $1', [id]);
     if (!u) throw new GameError('not_found', 404);
@@ -408,7 +435,7 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
       const id = int(Number(req.params.id), 1, Number.MAX_SAFE_INTEGER, 'id');
       const u = await loadUser(id);
       const log = await db.many('SELECT delta, reason, admin_id, created_at FROM bs_balance_log WHERE user_id = $1 ORDER BY id DESC LIMIT 20', [id]);
-      return { user: userRow(u), stats: await game.stats(id), inventory: await game.inventory(id), log };
+      return { user: userRow(u), stats: await game.stats(id), inventory: await inventoryWithSources(id), log };
     }),
   );
 
@@ -468,7 +495,7 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
       const item = game.catalog.items.get(itemId);
       if (!item) throw new GameError('not_found', 404);
       await loadUser(id);
-      const invId = await db.tx((cl) => game.giveItem(cl, id, item, 'admin'));
+      const invId = await db.tx((cl) => game.giveItem(cl, id, item, 'admin', { ref: req.user.id }));
       return { invId, item: game.publicItem(item) };
     }),
   );

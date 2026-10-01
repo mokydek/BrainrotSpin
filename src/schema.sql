@@ -87,6 +87,10 @@ CREATE TABLE IF NOT EXISTS bs_inventory (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS bs_inventory_user_idx ON bs_inventory (user_id);
+-- where the brainrot came from (shown in the admin player card):
+-- the case for case/free drops; ref_id = upgrade id (upgrade), request id (deposit, refund) or admin id (admin)
+ALTER TABLE bs_inventory ADD COLUMN IF NOT EXISTS case_id INTEGER REFERENCES bs_cases(id) ON DELETE SET NULL;
+ALTER TABLE bs_inventory ADD COLUMN IF NOT EXISTS ref_id BIGINT;
 
 CREATE TABLE IF NOT EXISTS bs_drops (
   id          BIGSERIAL PRIMARY KEY,

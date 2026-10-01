@@ -462,7 +462,7 @@ export function createRequests({ db, settings, game, tg, config }) {
     if (!it) throw new GameError('item_not_found', 404);
     await db.tx(async (cl) => {
       const row = await lockOpen(cl, id, 'deposit');
-      await game.giveItem(cl, row.user_id, it, 'deposit');
+      await game.giveItem(cl, row.user_id, it, 'deposit', { ref: row.id });
       const entry = { itemId: it.id, name: it.name, value: it.value, emoji: it.emoji };
       await cl.query('UPDATE bs_requests SET items = items || $2::jsonb WHERE id = $1', [id, JSON.stringify([entry])]);
       await touch(cl, id, admin.id);
@@ -479,7 +479,7 @@ export function createRequests({ db, settings, game, tg, config }) {
       if (r.kind === 'withdraw' && status === 'rejected') {
         for (const e of r.items || []) {
           const it = game.catalog.items.get(e.itemId);
-          if (it) await game.giveItem(cl, r.user_id, it, 'refund');
+          if (it) await game.giveItem(cl, r.user_id, it, 'refund', { ref: r.id });
         }
       }
       await cl.query('UPDATE bs_requests SET status = $2, admin_id = $3, updated_at = now() WHERE id = $1', [id, status, admin.id]);

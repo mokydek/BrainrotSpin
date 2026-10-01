@@ -151,10 +151,11 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
     };
   }
 
-  async function giveItem(client, userId, item, source) {
+  /** Puts a brainrot into the inventory; `caseId` / `ref` record where it came from (see bs_inventory). */
+  async function giveItem(client, userId, item, source, { caseId = null, ref = null } = {}) {
     const r = await client.query(
-      'INSERT INTO bs_inventory (user_id, item_id, source) VALUES ($1, $2, $3) RETURNING id',
-      [userId, item.id, source],
+      'INSERT INTO bs_inventory (user_id, item_id, source, case_id, ref_id) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+      [userId, item.id, source, caseId, ref],
     );
     return r.rows[0].id;
   }
@@ -178,7 +179,7 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
       if (u.balance < cost) throw new GameError('not_enough', 400, { balance: u.balance });
       const out = [];
       for (const item of items) {
-        const invId = await giveItem(cl, user.id, item, 'case');
+        const invId = await giveItem(cl, user.id, item, 'case', { caseId: c.id });
         const drop = await recordDrop(cl, user, item, c, 'case');
         out.push({ invId, item, drop });
       }
@@ -254,7 +255,7 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
       if (st.requireShare && !(u.shared_at && (!u.free_last_at || new Date(u.shared_at) > new Date(u.free_last_at)))) {
         throw new GameError('need_share');
       }
-      const invId = await giveItem(cl, user.id, item, 'free');
+      const invId = await giveItem(cl, user.id, item, 'free', { caseId: c.id });
       const upd = await cl.query(
         `UPDATE bs_users SET free_last_at = now(), cases_opened = cases_opened + 1,
                 total_won = total_won + $2,
@@ -334,10 +335,14 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
       const roll = rng.int(100000) / 1000;
       const won = roll < chance;
       await cl.query('DELETE FROM bs_inventory WHERE id = ANY($1::bigint[])', [list]);
+      const up = await cl.query(
+        'INSERT INTO bs_upgrades (user_id, bet_value, target_item_id, chance, roll, won) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+        [user.id, bet, targetItem.id, chance, roll, won],
+      );
       let invId = null;
       let drop = null;
       if (won) {
-        invId = await giveItem(cl, user.id, targetItem, 'upgrade');
+        invId = await giveItem(cl, user.id, targetItem, 'upgrade', { ref: up.rows[0].id });
         drop = await recordDrop(cl, user, targetItem, null, 'upgrade');
       }
       await cl.query(
@@ -346,10 +351,6 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
                 best_value = CASE WHEN $2 = 1 THEN GREATEST(best_value, $3) ELSE best_value END
           WHERE id = $1`,
         [user.id, won ? 1 : 0, targetItem.value, targetItem.id],
-      );
-      await cl.query(
-        'INSERT INTO bs_upgrades (user_id, bet_value, target_item_id, chance, roll, won) VALUES ($1,$2,$3,$4,$5,$6)',
-        [user.id, bet, targetItem.id, chance, roll, won],
       );
       return { won, roll, chance, bet, invId, drop };
     });

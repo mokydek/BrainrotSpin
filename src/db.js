@@ -79,10 +79,15 @@ export async function migrate(db) {
   const client = await db.pool.connect();
   try {
     await client.query('SELECT pg_advisory_lock(424242)');
+    const hadSources = await client.query(
+      "SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'bs_inventory' AND column_name = 'case_id'",
+    );
     await client.query(sql);
     await seed(client);
     // first run with the withdrawable flag: these brainrots can be withdrawn, the rest can't
     await client.query('UPDATE bs_items SET withdrawable = (lower(name) = ANY($1::text[])) WHERE withdrawable IS NULL', [WITHDRAWABLE]);
+    // first run with inventory sources: fill them in for brainrots players already have
+    if (!hadSources.rowCount) await backfillInventorySources(client);
   } finally {
     try {
       await client.query('SELECT pg_advisory_unlock(424242)');
@@ -90,6 +95,29 @@ export async function migrate(db) {
       client.release();
     }
   }
+}
+
+/**
+ * Finds where older inventory rows came from. Rows written in the same transaction share now(),
+ * so the drop / upgrade / request message created together with the brainrot has the same timestamp.
+ */
+export async function backfillInventorySources(client) {
+  await client.query(`UPDATE bs_inventory i SET case_id = d.case_id
+      FROM bs_drops d
+     WHERE i.source IN ('case', 'free') AND i.case_id IS NULL
+       AND d.user_id = i.user_id AND d.item_id = i.item_id AND d.kind = i.source AND d.created_at = i.created_at`);
+  await client.query(`UPDATE bs_inventory i SET ref_id = u.id
+      FROM bs_upgrades u
+     WHERE i.source = 'upgrade' AND i.ref_id IS NULL
+       AND u.won AND u.user_id = i.user_id AND u.target_item_id = i.item_id AND u.created_at = i.created_at`);
+  await client.query(`UPDATE bs_inventory i SET ref_id = r.id
+      FROM bs_request_msgs m JOIN bs_requests r ON r.id = m.request_id
+     WHERE i.source = 'deposit' AND i.ref_id IS NULL
+       AND r.kind = 'deposit' AND r.user_id = i.user_id AND m.text = 'give:' || i.item_id AND m.created_at = i.created_at`);
+  await client.query(`UPDATE bs_inventory i SET ref_id = r.id
+      FROM bs_request_msgs m JOIN bs_requests r ON r.id = m.request_id
+     WHERE i.source = 'refund' AND i.ref_id IS NULL
+       AND r.kind = 'withdraw' AND r.user_id = i.user_id AND m.text = 'status:rejected' AND m.created_at = i.created_at`);
 }
 
 async function seed(client) {
