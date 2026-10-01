@@ -39,6 +39,13 @@ function imageUrl(v) {
   if (s && !/^https:\/\/\S+$/i.test(s)) throw new GameError('bad_field', 400, { field: 'image_url' });
   return s;
 }
+/** Uploaded picture: a base64 data URL of a raster image, at most ~700 KB. */
+function imageData(v) {
+  if (typeof v !== 'string' || v.length > 700_000 || !/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(v)) {
+    throw new GameError('bad_field', 400, { field: 'image' });
+  }
+  return v;
+}
 
 export function createAdmin({ db, settings, game, live, tg, broadcaster }) {
   const r = express.Router();
@@ -75,6 +82,7 @@ export function createAdmin({ db, settings, game, live, tg, broadcaster }) {
       color: c.color,
       sort: c.sort,
       enabled: c.enabled,
+      image: game.caseImage(c),
       items: c.items
         .map((e) => ({ itemId: e.item_id, chance: e.chance }))
         .sort((a, b) => (game.catalog.items.get(b.itemId)?.value || 0) - (game.catalog.items.get(a.itemId)?.value || 0)),
@@ -169,6 +177,28 @@ export function createAdmin({ db, settings, game, live, tg, broadcaster }) {
     }),
   );
 
+  r.post(
+    '/cases/:id/image',
+    wrap(async (req) => {
+      const id = int(Number(req.params.id), 1, 2_147_483_647, 'id');
+      if (!game.catalog.cases.has(id)) throw new GameError('not_found', 404);
+      await db.query('UPDATE bs_cases SET image_data = $2 WHERE id = $1', [id, imageData((req.body || {}).dataUrl)]);
+      await game.reloadCatalog();
+      return { case: adminCase(game.catalog.cases.get(id)) };
+    }),
+  );
+
+  r.delete(
+    '/cases/:id/image',
+    wrap(async (req) => {
+      const id = int(Number(req.params.id), 1, 2_147_483_647, 'id');
+      if (!game.catalog.cases.has(id)) throw new GameError('not_found', 404);
+      await db.query('UPDATE bs_cases SET image_data = NULL WHERE id = $1', [id]);
+      await game.reloadCatalog();
+      return { case: adminCase(game.catalog.cases.get(id)) };
+    }),
+  );
+
   // ------------------------------------------------------------ items
   r.get(
     '/items',
@@ -238,11 +268,7 @@ export function createAdmin({ db, settings, game, live, tg, broadcaster }) {
     wrap(async (req) => {
       const id = int(Number(req.params.id), 1, 2_147_483_647, 'id');
       if (!game.catalog.items.has(id)) throw new GameError('not_found', 404);
-      const data = (req.body || {}).dataUrl;
-      if (typeof data !== 'string' || data.length > 700_000 || !/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(data)) {
-        throw new GameError('bad_field', 400, { field: 'image' });
-      }
-      await db.query('UPDATE bs_items SET image_data = $2 WHERE id = $1', [id, data]);
+      await db.query('UPDATE bs_items SET image_data = $2 WHERE id = $1', [id, imageData((req.body || {}).dataUrl)]);
       await game.reloadCatalog();
       return { item: game.publicItem(game.catalog.items.get(id)) };
     }),

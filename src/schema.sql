@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS bs_cases (
   sort     INTEGER NOT NULL DEFAULT 0,
   enabled  BOOLEAN NOT NULL DEFAULT TRUE
 );
+-- case picture uploaded in the admin panel (data URL); without it the app draws a chest
+ALTER TABLE bs_cases ADD COLUMN IF NOT EXISTS image_data TEXT;
 
 CREATE TABLE IF NOT EXISTS bs_case_items (
   case_id  INTEGER NOT NULL REFERENCES bs_cases(id) ON DELETE CASCADE,

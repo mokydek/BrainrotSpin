@@ -51,6 +51,10 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
     };
   }
 
+  function caseImage(c) {
+    return c.has_image ? `/api/img/case/${c.id}?v=${c.img_ver.slice(0, 8)}` : null;
+  }
+
   function publicCase(c) {
     const sum = c.items.reduce((s, e) => s + e.chance, 0) || 1;
     return {
@@ -61,6 +65,7 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
       isFree: c.is_free,
       emoji: c.emoji,
       color: c.color,
+      image: caseImage(c),
       items: c.items
         .map((e) => ({ item: publicItem(catalog.items.get(e.item_id)), chance: Math.round((e.chance / sum) * 100000) / 1000 }))
         .sort((a, b) => b.item.value - a.item.value),
@@ -73,7 +78,11 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
               (image_data IS NOT NULL) AS has_image, md5(coalesce(image_data, '')) AS img_ver
          FROM bs_items ORDER BY value, id`,
     );
-    const cases = await db.many('SELECT * FROM bs_cases ORDER BY sort, id');
+    const cases = await db.many(
+      `SELECT id, slug, name_ru, name_uk, name_en, price, is_free, emoji, color, sort, enabled,
+              (image_data IS NOT NULL) AS has_image, md5(coalesce(image_data, '')) AS img_ver
+         FROM bs_cases ORDER BY sort, id`,
+    );
     const links = await db.many('SELECT case_id, item_id, chance FROM bs_case_items ORDER BY case_id, item_id');
     catalog.items = new Map(items.map((i) => [i.id, i]));
     const map = new Map(cases.map((c) => [c.id, { ...c, items: [] }]));
@@ -390,6 +399,7 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
     listCases,
     listItems,
     publicItem,
+    caseImage,
     freeCase,
     freeState,
     upgradeSettings,

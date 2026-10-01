@@ -110,16 +110,19 @@ export function createApi(deps) {
   r.get('/feed', (req, res) => res.json(live.snapshot()));
   r.get('/stream', (req, res) => live.sseHandler(req, res));
 
-  r.get('/img/item/:id', async (req, res) => {
+  // uploaded pictures of items and cases (stored as data URLs)
+  const sendImage = (table) => async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isSafeInteger(id)) return res.status(404).end();
-    const row = await db.one('SELECT image_data FROM bs_items WHERE id = $1', [id]).catch(() => null);
+    const row = await db.one(`SELECT image_data FROM ${table} WHERE id = $1`, [id]).catch(() => null);
     const m = row && /^data:(image\/(png|jpeg|webp|gif));base64,(.+)$/.exec(row.image_data || '');
     if (!m) return res.status(404).end();
     res.set('Content-Type', m[1]);
     res.set('Cache-Control', 'public, max-age=604800, immutable');
     res.send(Buffer.from(m[3], 'base64'));
-  });
+  };
+  r.get('/img/item/:id', sendImage('bs_items'));
+  r.get('/img/case/:id', sendImage('bs_cases'));
 
   // ------------------------------------------------------------ player
   r.post(
