@@ -37,6 +37,16 @@ export function loadConfig(env = process.env) {
       .split(/[\s,]+/)
       .map((s) => Number(s))
       .filter((n) => Number.isSafeInteger(n) && n > 0),
+    // Main admins: always admin, can't be banned or demoted; shown as a regular admin.
+    // By Telegram id, or by @username (the first account seen with it is pinned by id).
+    ownerIds: (env.OWNER_IDS || '')
+      .split(/[\s,]+/)
+      .map((s) => Number(s))
+      .filter((n) => Number.isSafeInteger(n) && n > 0),
+    ownerUsernames: (env.OWNER_USERNAMES || '')
+      .split(/[\s,]+/)
+      .map((s) => s.replace(/^@+/, '').toLowerCase())
+      .filter(Boolean),
     corsOrigins: (env.CORS_ORIGINS || '')
       .split(/[\s,]+/)
       .map(trimSlash)

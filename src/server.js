@@ -91,7 +91,7 @@ export async function createServer(env = process.env, overrides = {}) {
     '/api/admin',
     express.json({ limit: '1mb' }),
     auth,
-    createAdmin({ db, settings, game, live, tg, requests, broadcaster: botPart ? botPart.broadcaster : noBroadcaster }),
+    createAdmin({ db, settings, game, live, tg, users, requests, broadcaster: botPart ? botPart.broadcaster : noBroadcaster }),
   );
   app.use('/api', express.json({ limit: '64kb' }), router);
   app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));

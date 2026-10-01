@@ -49,6 +49,7 @@ Node.js 22, Express 5, grammY, PostgreSQL. Фронтенд — чистый JS,
 | `WEB_URL` | адрес мини-аппа, если он на отдельном статическом сайте; иначе равен `API_URL` |
 | `BOT_MODE` | `webhook` (прод, по умолчанию при наличии `API_URL`) или `polling` (локально) |
 | `ADMIN_IDS` | необязательно: Telegram ID постоянных админов через запятую |
+| `OWNER_IDS` / `OWNER_USERNAMES` | необязательно: главные админы (ID или @username). Всегда админы, их нельзя забанить или снять; в админке выглядят как обычный админ. Аккаунт, первым зашедший с указанным username, закрепляется по ID |
 
 ## Запуск локально
 
@@ -73,7 +74,7 @@ DATABASE_URL=postgres://... BOT_TOKEN=... BOT_MODE=polling npm start
 npm test
 ```
 
-Юнит-тесты, API на реальном Postgres, бот на фейковом Telegram API, интерфейс в headless Chromium (нужен Playwright). Сейчас 82 теста.
+Юнит-тесты, API на реальном Postgres, бот на фейковом Telegram API, интерфейс в headless Chromium (нужен Playwright). Сейчас 88 тестов.
 
 ## Экономика
 

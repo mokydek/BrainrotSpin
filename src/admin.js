@@ -47,7 +47,7 @@ function imageData(v) {
   return v;
 }
 
-export function createAdmin({ db, settings, game, live, tg, requests, broadcaster }) {
+export function createAdmin({ db, settings, game, live, tg, users, requests, broadcaster }) {
   const r = express.Router();
   r.use((req, res, next) => (req.user && req.user.is_admin ? next() : res.status(403).json({ error: 'forbidden' })));
 
@@ -365,6 +365,8 @@ export function createAdmin({ db, settings, game, live, tg, requests, broadcaste
       const id = int(Number(req.params.id), 1, Number.MAX_SAFE_INTEGER, 'id');
       const b = req.body || {};
       await loadUser(id);
+      // the main admin can't be demoted or banned (refused with a generic error)
+      if (users.isOwnerId(id) && (b.is_admin === false || b.is_banned === true)) throw new GameError('forbidden', 403);
       if (b.is_admin !== undefined) {
         const v = bool(b.is_admin, 'is_admin');
         if (!v && id === req.user.id) throw new GameError('cannot_demote_self');
