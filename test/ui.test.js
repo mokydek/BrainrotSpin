@@ -354,6 +354,84 @@ test('upgrader: 75% / 50% / 30% buttons pick the target with the closest chance'
   await page.context().close();
 });
 
+test('live drops: hovering a tile shows the case or the upgrader it came from (tap on phones)', { skip }, async () => {
+  const items = [...demo.ctx.game.catalog.items.values()];
+  const it = items.find((i) => i.name === 'Spooky and Pumpky');
+  demo.ctx.live.pushDrop(
+    { id: 9000001, at: new Date().toISOString(), kind: 'upgrade', value: it.value, item: demo.ctx.game.publicItem(it), user: { name: 'Апгрейдер-тест' }, caseId: null },
+    0,
+  );
+  const visible = (loc) => loc.evaluate((el) => getComputedStyle(el).opacity === '1');
+  const caseOf = (id) => demo.ctx.game.catalog.cases.get(id);
+  const { feed } = (await demo.app.get('/api/feed')).body;
+  const caseDrop = feed.find((d) => d.kind === 'case' && d.caseId);
+  assert.ok(caseDrop, 'the demo feed has case drops');
+
+  // computer with a mouse: hover
+  {
+    const { page, errors } = await open({ width: 1280, height: 860, touch: false });
+    await page.waitForSelector('#feed .drop');
+    assert.equal(await page.evaluate(() => matchMedia('(hover: hover)').matches), true);
+    const tiles = page.locator('#feed .drop');
+    const n = await tiles.count();
+    const kinds = await tiles.evaluateAll((els) => els.map((e) => e.dataset.src));
+    // every tile carries its source, hidden until hovered
+    for (let i = 0; i < n; i++) assert.equal(await visible(tiles.nth(i).locator('.drop-src')), false);
+    const up = tiles.nth(kinds.indexOf('upgrade'));
+    await up.hover();
+    await page.waitForTimeout(300);
+    assert.equal(await visible(up.locator('.drop-src')), true);
+    assert.equal(await up.locator('.src-name').textContent(), 'Апгрейдер');
+    assert.equal(await up.locator('.src-art svg').count(), 1);
+    // a case drop: that very case, by name
+    const feedNow = (await demo.app.get('/api/feed')).body.feed.slice(0, n);
+    const ci = feedNow.findIndex((d) => d.kind === 'case');
+    const tile = tiles.nth(ci);
+    await tile.hover();
+    await page.waitForTimeout(300);
+    assert.equal(await visible(tile.locator('.drop-src')), true);
+    assert.equal(await tile.locator('.src-name').textContent(), caseOf(feedNow[ci].caseId).name_ru);
+    assert.equal(await visible(up.locator('.drop-src')), false, 'the previous tile went back');
+    // moving away restores the drop
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(300);
+    assert.equal(await visible(tile.locator('.drop-src')), false);
+    // the top drop of the day too
+    const top = (await demo.app.get('/api/feed')).body.top24;
+    await page.hover('#top24');
+    await page.waitForTimeout(300);
+    assert.equal(await visible(page.locator('#top24 .drop-src')), true);
+    assert.equal(
+      await page.textContent('#top24 .src-name'),
+      top.kind === 'upgrade' ? 'Апгрейдер' : caseOf(top.caseId).name_ru,
+    );
+    assert.deepEqual(errors, []);
+    await page.context().close();
+  }
+  // phone: a tap shows it, another tap hides it; nothing else happens
+  {
+    const { page, errors } = await open();
+    await page.waitForSelector('#feed .drop');
+    assert.equal(await page.evaluate(() => matchMedia('(hover: none)').matches), true);
+    const tile = page.locator('#feed .drop').first();
+    await tile.tap();
+    await page.waitForTimeout(300);
+    assert.equal(await visible(tile.locator('.drop-src')), true);
+    assert.equal(await tile.locator('.src-name').textContent(), 'Апгрейдер');
+    assert.equal(new URL(page.url()).hash, '', 'stays on the main screen');
+    const second = page.locator('#feed .drop').nth(1);
+    await second.tap();
+    await page.waitForTimeout(300);
+    assert.equal(await visible(tile.locator('.drop-src')), false, 'one at a time');
+    assert.equal(await visible(second.locator('.drop-src')), true);
+    await second.tap();
+    await page.waitForTimeout(300);
+    assert.equal(await visible(second.locator('.drop-src')), false);
+    assert.deepEqual(errors, []);
+    await page.context().close();
+  }
+});
+
 test('promo code from the balance button', { skip }, async () => {
   const { page } = await open();
   await page.waitForSelector('.case-grid');
