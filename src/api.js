@@ -135,7 +135,9 @@ export function createApi(deps) {
       return {
         me: meView(u),
         cases: game.listCases(),
+        categories: game.listCategories(),
         items: game.listItems(),
+        withdrawIds: game.withdrawIds(),
         upgrade: game.upgradeSettings(),
         free: game.freeState(u),
         live: live.snapshot(),
@@ -175,10 +177,17 @@ export function createApi(deps) {
     '/catalog',
     auth,
     limitLight,
-    wrap(async () => ({ cases: game.listCases(), items: game.listItems(), upgrade: game.upgradeSettings(), topup: { starsRate: settings.get('stars_rate') } })),
+    wrap(async () => ({
+      cases: game.listCases(),
+      categories: game.listCategories(),
+      items: game.listItems(),
+      withdrawIds: game.withdrawIds(),
+      upgrade: game.upgradeSettings(),
+      topup: { starsRate: settings.get('stars_rate') },
+    })),
   );
 
-  r.post('/case/:id/open', auth, limitActions, wrap(async (req) => game.openCase(req.user, req.params.id)));
+  r.post('/case/:id/open', auth, limitActions, wrap(async (req) => game.openCase(req.user, req.params.id, (req.body || {}).count)));
 
   r.post(
     '/free/check',

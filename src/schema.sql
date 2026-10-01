@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS bs_items (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- brainrots that can be withdrawn (others are exchanged for one of them); NULL = not set yet
+ALTER TABLE bs_items ADD COLUMN IF NOT EXISTS withdrawable BOOLEAN;
+
 CREATE TABLE IF NOT EXISTS bs_cases (
   id       SERIAL PRIMARY KEY,
   slug     TEXT UNIQUE NOT NULL,
@@ -59,6 +62,15 @@ CREATE TABLE IF NOT EXISTS bs_cases (
 );
 -- case picture uploaded in the admin panel (data URL); without it the app draws a chest
 ALTER TABLE bs_cases ADD COLUMN IF NOT EXISTS image_data TEXT;
+
+-- Case categories made by admins (a heading on the cases screen)
+CREATE TABLE IF NOT EXISTS bs_categories (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL,
+  sort        INTEGER NOT NULL DEFAULT 0,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE bs_cases ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES bs_categories(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS bs_case_items (
   case_id  INTEGER NOT NULL REFERENCES bs_cases(id) ON DELETE CASCADE,
@@ -155,6 +167,8 @@ CREATE TABLE IF NOT EXISTS bs_requests (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- withdrawal: brainrots that couldn't be withdrawn, exchanged for one that can; remainder in coins
+ALTER TABLE bs_requests ADD COLUMN IF NOT EXISTS exchange JSONB;
 CREATE INDEX IF NOT EXISTS bs_requests_kind_idx ON bs_requests (kind, status, id DESC);
 CREATE INDEX IF NOT EXISTS bs_requests_user_idx ON bs_requests (user_id);
 ALTER TABLE bs_requests ADD COLUMN IF NOT EXISTS invoice TEXT;
@@ -178,6 +192,7 @@ CREATE INDEX IF NOT EXISTS bs_request_msgs_tg_idx ON bs_request_msgs (tg_msg_id)
 ALTER TABLE bs_users        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bs_items        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bs_cases        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bs_categories   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bs_case_items   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bs_inventory    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bs_drops        ENABLE ROW LEVEL SECURITY;

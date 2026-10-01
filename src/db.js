@@ -5,6 +5,9 @@ import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
+/** Brainrots that can be withdrawn by default (admins change it per item). */
+export const WITHDRAWABLE = ['garama and madundung', 'cerberus', 'capitano moby', 'burguro and fryuro', 'dragon cannelloni'];
+
 // BIGINT and NUMERIC come back as strings by default; our values fit in JS numbers.
 pg.types.setTypeParser(20, (v) => (v === null ? null : Number(v)));
 pg.types.setTypeParser(1700, (v) => (v === null ? null : Number(v)));
@@ -78,6 +81,8 @@ export async function migrate(db) {
     await client.query('SELECT pg_advisory_lock(424242)');
     await client.query(sql);
     await seed(client);
+    // first run with the withdrawable flag: these brainrots can be withdrawn, the rest can't
+    await client.query('UPDATE bs_items SET withdrawable = (lower(name) = ANY($1::text[])) WHERE withdrawable IS NULL', [WITHDRAWABLE]);
   } finally {
     try {
       await client.query('SELECT pg_advisory_unlock(424242)');
