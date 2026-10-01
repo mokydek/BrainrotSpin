@@ -18,7 +18,7 @@ const allErrors = [];
 
 before(async () => {
   if (skip) return;
-  demo = await startDemo({ dbName: 'bs_t_ui' });
+  demo = await startDemo({ dbName: 'bs_t_ui', env: { OWNER_USERNAMES: 'owner_ui' } });
   browser = await pw.chromium.launch();
 });
 after(async () => {
@@ -562,6 +562,31 @@ test('admin: case picture upload shows on the case card, removal brings the ches
   await page.waitForSelector('#cPreview svg.chest');
   assert.equal((await demo.app.get('/api/admin/cases', { user: ME })).body.cases.find((c) => c.id === id).image, null);
   assert.deepEqual(errors, []);
+  await page.context().close();
+});
+
+test('main admin: shown as a plain admin, a ban attempt just fails', { skip }, async () => {
+  const boss = { id: 7001, first_name: 'Босс', username: 'owner_ui', language_code: 'ru' };
+  await demo.app.post('/api/bootstrap', { user: boss });
+  const { page, errors } = await open({ path: '/#/admin/users' });
+  await page.waitForSelector('#uList .row');
+  const html = (sel) => page.$eval(sel, (el) => el.querySelector('.row-side').innerHTML.replace(/<b>[^<]*<\/b>/, ''));
+  // same badge markup as any other admin (only the balance differs)
+  assert.equal(await html(`a[href="#/admin/users/${boss.id}"]`), await html(`a[href="#/admin/users/${ME.id}"]`));
+  assert.equal(await page.textContent(`a[href="#/admin/users/${boss.id}"] .badge`), 'Админ');
+  await page.click(`a[href="#/admin/users/${boss.id}"]`);
+  await page.waitForSelector('[data-flag="is_banned"]');
+  assert.equal(await page.textContent('[data-flag="is_banned"]'), 'Забанить');
+  assert.equal(await page.textContent('[data-flag="is_admin"]'), 'Снять админа');
+  await page.click('[data-flag="is_banned"]');
+  await page.waitForSelector('.toast.error');
+  assert.equal(await page.textContent('.toast.error'), 'Что-то пошло не так');
+  await page.click('[data-flag="is_admin"]');
+  await page.waitForTimeout(400);
+  const r = await demo.ctx.db.one('SELECT is_admin, is_banned FROM bs_users WHERE id = $1', [boss.id]);
+  assert.deepEqual(r, { is_admin: true, is_banned: false });
+  assert.equal(await page.textContent('[data-flag="is_banned"]'), 'Забанить');
+  assert.deepEqual(errors.filter((e) => !/status of 403/.test(e)), []);
   await page.context().close();
 });
 
