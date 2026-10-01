@@ -79,6 +79,59 @@ test('opening a paid case: charge, spin, result, sell', { skip }, async () => {
   await page.context().close();
 });
 
+test('opening a case x3: three strips, one charge of 3 × price, all drops shown', { skip }, async () => {
+  await demo.app.setBalance(ME.id, 250); // enough for one x3 only
+  const { page, errors } = await open();
+  await page.waitForSelector('.case-grid');
+  const fish = demo.bySlug.fish; // 65
+  await page.click(`[data-case="${fish.id}"]`);
+  await page.waitForSelector('#countSeg');
+  assert.deepEqual(await page.locator('#countSeg button').allTextContents(), ['x1', 'x2', 'x3']);
+  assert.equal(await page.locator('#roulettes .roulette').count(), 1);
+  const before = num(await page.textContent('#bal'));
+  await page.click('[data-act="count"][data-n="3"]');
+  assert.equal(await page.locator('#roulettes .roulette').count(), 3);
+  assert.equal(num(await page.textContent('[data-act="open"]')), 195);
+  const invBefore = (await demo.app.get('/api/inventory', { user: ME })).body.inventory.length;
+  await page.click('[data-act="open"]');
+  await page.waitForFunction((b) => Number(document.querySelector('#bal').textContent.replace(/\D/g, '')) === b - 195, before);
+  await page.waitForSelector('.result.multi', { timeout: 10000 });
+  await page.waitForTimeout(300);
+  // the strips keep showing the drops even though x3 is no longer affordable
+  assert.equal(await page.locator('#roulettes .roulette').count(), 3);
+  assert.equal(await page.locator('#roulettes .r-tile.win').count(), 3);
+  const names = await page.locator('.result-items .item-name').allTextContents();
+  assert.equal(names.length, 3);
+  const inv = (await demo.app.get('/api/inventory', { user: ME })).body.inventory;
+  assert.equal(inv.length, invBefore + 3);
+  assert.deepEqual(inv.slice(0, 3).map((i) => i.item.name).sort(), [...names].sort(), 'shown items are the ones the server gave');
+  // every strip stopped on its own drop
+  const wins = await page.locator('#roulettes .r-tile.win .r-name').allTextContents();
+  assert.deepEqual([...wins].sort(), [...names].sort());
+  const total = inv.slice(0, 3).reduce((s, i) => s + i.item.value, 0);
+  assert.equal(num(await page.textContent('.result.multi [data-act="sell-won"]')), total);
+  await page.click('.result.multi [data-act="sell-won"]');
+  await page.waitForSelector('.toast.ok');
+  assert.equal(num(await page.textContent('#bal')), before - 195 + total);
+  assert.equal((await demo.app.get('/api/inventory', { user: ME })).body.inventory.length, invBefore);
+  // not enough for x3 any more -> that option is disabled and fewer strips are shown
+  await demo.app.setBalance(ME.id, 140);
+  await page.evaluate(() => (location.hash = '#/cases'));
+  await page.reload();
+  await page.waitForSelector('.case-grid');
+  await page.click(`[data-case="${fish.id}"]`);
+  await page.waitForSelector('#countSeg');
+  assert.equal(await page.isDisabled('[data-act="count"][data-n="3"]'), true);
+  assert.equal(await page.isDisabled('[data-act="count"][data-n="2"]'), false);
+  await page.click('[data-act="count"][data-n="2"]');
+  assert.equal(await page.locator('#roulettes .roulette').count(), 2);
+  await page.click('[data-act="count"][data-n="1"]');
+  assert.equal(await page.locator('#roulettes .roulette').count(), 1);
+  await demo.app.setBalance(ME.id, 1250);
+  assert.deepEqual(errors, []);
+  await page.context().close();
+});
+
 test('selling the drop re-enables opening when the balance is enough again', { skip }, async () => {
   const noob = demo.bySlug.noob;
   await demo.app.setBalance(ME.id, 10);
@@ -162,6 +215,65 @@ test('upgrader: chance matches the formula and the result matches the server', {
   await page.click('.result [data-act="close-modal"]');
   await page.waitForTimeout(300);
   assert.equal(await page.locator('[data-act="up-pick"]').count(), invAfter);
+  assert.deepEqual(errors, []);
+  await page.context().close();
+});
+
+test('upgrader: 75% / 50% / 30% buttons pick the target with the closest chance', { skip }, async () => {
+  const { page, errors } = await open({ path: '/#/upgrade' });
+  await page.waitForSelector('#upPcts button');
+  assert.deepEqual(await page.locator('#upPcts button').allTextContents(), ['75%', '50%', '30%']);
+  await page.click('[data-act="up-pct"][data-p="50"]');
+  await page.waitForSelector('.toast');
+  assert.equal(await page.textContent('.toast'), 'Выбери предметы');
+  await page.click('[data-act="up-pick"] >> nth=0');
+  const bet = num(await page.textContent('#upSlots .slot:first-child .slot-val'));
+  const { items, upgrade } = (await demo.app.get('/api/catalog', { user: ME })).body;
+  const chanceOf = (v) => Math.min(upgrade.maxChance, Math.floor((bet / v) * (100 - upgrade.edge) * 100) / 100);
+  const candidates = items.filter((i) => i.value > bet && chanceOf(i.value) >= upgrade.minChance);
+  const gauge = async () => Number((await page.textContent('#gPct')).replace('%', '').replace(',', '.').replace(/\s/g, ''));
+  for (const p of [75, 50, 30]) {
+    await page.click(`[data-act="up-pct"][data-p="${p}"]`);
+    const target = num(await page.textContent('#upSlots .slot:last-child .slot-val'));
+    const shown = await gauge();
+    assert.equal(shown, chanceOf(target));
+    const bestDiff = Math.min(...candidates.map((i) => Math.abs(chanceOf(i.value) - p)));
+    assert.ok(Math.abs(Math.abs(shown - p) - bestDiff) < 1e-9, `${p}%: picked ${shown}%, best possible diff ${bestDiff}`);
+    assert.equal(await page.getAttribute(`[data-act="up-pct"][data-p="${p}"]`, 'class'), 'on');
+    assert.equal(await page.isDisabled('#upBtn'), false);
+  }
+  // adding an item re-picks the target for the same percentage
+  if ((await page.locator('[data-act="up-pick"]').count()) > 1) {
+    await page.click('[data-act="up-tab"][data-v="inv"]');
+    await page.click('[data-act="up-pick"] >> nth=1');
+    const bet2 = num(await page.textContent('#upSlots .slot:first-child .slot-val'));
+    const t2 = num(await page.textContent('#upSlots .slot:last-child .slot-val'));
+    assert.ok(t2 > bet2);
+    assert.equal(await page.getAttribute('[data-act="up-pct"][data-p="30"]', 'class'), 'on');
+  }
+  // the bet changes elsewhere (an item sold in the profile): the same percentage picks again
+  await page.click('[data-act="up-tab"][data-v="inv"]');
+  const selected = await page.$$eval('[data-act="up-pick"].sel', (els) => els.map((e) => Number(e.dataset.inv)));
+  if (selected.length > 1) {
+    await page.evaluate(() => (location.hash = '#/profile'));
+    await page.waitForSelector(`[data-act="sell"][data-inv="${selected[1]}"]`);
+    await page.click(`[data-act="sell"][data-inv="${selected[1]}"]`);
+    await page.waitForFunction((id) => !document.querySelector(`[data-act="sell"][data-inv="${id}"]`), selected[1]);
+    await page.evaluate(() => (location.hash = '#/upgrade'));
+    await page.waitForSelector('#upPcts button');
+    const bet3 = num(await page.textContent('#upSlots .slot:first-child .slot-val'));
+    const t3 = num(await page.textContent('#upSlots .slot:last-child .slot-val'));
+    const ch = (v) => Math.min(upgrade.maxChance, Math.floor((bet3 / v) * (100 - upgrade.edge) * 100) / 100);
+    const cands = items.filter((i) => i.value > bet3 && ch(i.value) >= upgrade.minChance);
+    const best = Math.min(...cands.map((i) => Math.abs(ch(i.value) - 30)));
+    assert.ok(Math.abs(Math.abs(ch(t3) - 30) - best) < 1e-9, 'target re-picked for 30% with the new bet');
+    assert.equal(await gauge(), ch(t3));
+    assert.equal(await page.getAttribute('[data-act="up-pct"][data-p="30"]', 'class'), 'on');
+  }
+  // picking a target by hand drops the percentage highlight
+  await page.click('[data-act="up-tab"][data-v="targets"]');
+  await page.click('[data-act="up-target"] >> nth=0');
+  assert.equal(await page.locator('#upPcts button.on').count(), 0);
   assert.deepEqual(errors, []);
   await page.context().close();
 });
@@ -305,28 +417,65 @@ test('deposit by brainrots: nickname + what, request reaches the admins', { skip
   await page.context().close();
 });
 
-test('withdrawal from the profile: pick brainrots, they leave the inventory', { skip }, async () => {
+test('withdrawal from the profile: listed brainrots go as they are, others are exchanged with a remainder', { skip }, async () => {
+  const give = async (name) => {
+    const it = [...demo.ctx.game.catalog.items.values()].find((i) => i.name === name);
+    return (await demo.ctx.db.one("INSERT INTO bs_inventory (user_id, item_id, source) VALUES ($1, $2, 'test') RETURNING id", [ME.id, it.id])).id;
+  };
+  const garama = await give('Garama and Madundung');
+  const croc = await give('Bombardiro Crocodilo'); // 75, can't be withdrawn
+  const goose = await give('Bombombini Gusini'); // 85, can't be withdrawn
+  const cerberus = await give('Cerberus');
   const { page, errors } = await open({ path: '/#/profile' });
   await page.waitForSelector('.p-card');
   const before = await page.locator('.grid.items .item').count();
-  assert.ok(before >= 2);
+  const bal = num(await page.textContent('#bal'));
+
+  // 1) only listed brainrots: straight to a request
   await page.click('[data-act="withdraw"]');
   await page.waitForSelector('#wdForm');
   assert.equal(await page.isDisabled('#wdBtn'), true);
   assert.equal(await page.locator('[data-wd]').count(), before);
-  await page.click('[data-wd] >> nth=0');
-  await page.click('[data-wd] >> nth=1');
-  const inv = (await demo.app.get('/api/inventory', { user: ME })).body.inventory;
-  const picked = inv.slice(0, 2);
-  assert.equal(num(await page.textContent('#wdBtn')), picked[0].item.value + picked[1].item.value);
+  await page.click(`[data-wd="${cerberus}"]`);
+  assert.equal(num(await page.textContent('#wdBtn')), 150);
   await page.fill('#wdForm [name=nick]', 'TestRoblox');
   await page.click('#wdBtn');
   await page.waitForSelector('.toast.ok');
-  await page.waitForFunction((n) => document.querySelectorAll('.grid.items .item').length === n, before - 2);
-  const row = await demo.ctx.db.one("SELECT * FROM bs_requests WHERE user_id = $1 AND kind = 'withdraw' ORDER BY id DESC LIMIT 1", [ME.id]);
-  assert.deepEqual(row.items.map((i) => i.invId).sort(), picked.map((p) => p.invId).sort());
-  assert.equal(row.total, picked[0].item.value + picked[1].item.value);
-  assert.equal((await demo.app.get('/api/inventory', { user: ME })).body.inventory.length, before - 2);
+  let row = await demo.ctx.db.one("SELECT * FROM bs_requests WHERE user_id = $1 AND kind = 'withdraw' ORDER BY id DESC LIMIT 1", [ME.id]);
+  assert.deepEqual(row.items.map((i) => i.name), ['Cerberus']);
+  assert.equal(row.exchange, null);
+  await page.waitForFunction((n) => document.querySelectorAll('.grid.items .item').length === n, before - 1);
+  await page.waitForSelector('.toast', { state: 'detached' });
+
+  // 2) others picked: choose one of the listed brainrots, the remainder is shown and credited
+  await page.click('[data-act="withdraw"]');
+  await page.waitForSelector('#wdForm');
+  assert.equal(await page.inputValue('#wdForm [name=nick]'), 'TestRoblox', 'nickname remembered');
+  for (const id of [garama, croc, goose]) await page.click(`[data-wd="${id}"]`);
+  await page.click('#wdBtn');
+  await page.waitForSelector('#wdSwap:not(.hidden) [data-wt]');
+  assert.equal(await page.textContent('#wdSwap .sheet-title'), 'Выбери, кого вывести');
+  const names = await page.locator('#wdTargets .item-name').allTextContents();
+  assert.deepEqual([...names].sort(), ['Burguro and Fryuro', 'Capitano Moby', 'Cerberus', 'Dragon Cannelloni', 'Garama and Madundung']);
+  const id = (n) => [...demo.ctx.game.catalog.items.values()].find((i) => i.name === n).id;
+  assert.equal(await page.isDisabled(`[data-wt="${id('Dragon Cannelloni')}"]`), true, '1100 > 160');
+  assert.equal(await page.textContent(`[data-wt="${id('Cerberus')}"] .wd-rest`), 'Остаток +10');
+  assert.equal(await page.textContent(`[data-wt="${id('Burguro and Fryuro')}"] .wd-rest`), 'Остаток +60');
+  assert.equal(await page.isDisabled('#wdGo'), true);
+  // back to the list keeps the selection
+  await page.click('#wdBack');
+  assert.equal(await page.locator('#wdGrid .item.sel').count(), 3);
+  await page.click('#wdBtn');
+  await page.click(`[data-wt="${id('Cerberus')}"]`);
+  await page.click('#wdGo');
+  await page.waitForSelector('.toast.ok');
+  await page.waitForFunction((b) => Number(document.querySelector('#bal').textContent.replace(/\D/g, '')) === b + 10, bal);
+  row = await demo.ctx.db.one("SELECT * FROM bs_requests WHERE user_id = $1 AND kind = 'withdraw' ORDER BY id DESC LIMIT 1", [ME.id]);
+  assert.deepEqual(row.items.map((i) => i.name), ['Cerberus', 'Garama and Madundung']);
+  assert.equal(row.exchange.rest, 10);
+  await page.waitForFunction((n) => document.querySelectorAll('.grid.items .item').length === n, before - 4);
+  assert.equal((await demo.app.get('/api/inventory', { user: ME })).body.inventory.length, before - 4);
+  await demo.ctx.db.query("UPDATE bs_requests SET status = 'done' WHERE user_id = $1 AND kind = 'withdraw' AND status = 'new'", [ME.id]);
   assert.deepEqual(errors, []);
   await page.context().close();
 });
@@ -504,6 +653,48 @@ test('admin: edit a case price from the panel and players see it', { skip }, asy
     await page.evaluate((x) => (location.hash = '#/admin/' + x), s);
     await page.waitForSelector('#admBody > :not(.spinner)');
   }
+  assert.deepEqual(errors, []);
+  await page.context().close();
+});
+
+test('admin: categories — make one, drop cases in, players see them under the heading', { skip }, async () => {
+  const { page, errors } = await open({ path: '/#/admin/cases' });
+  await page.waitForSelector('[data-cat-edit="new"]');
+  await page.click('[data-cat-edit="new"]');
+  await page.waitForSelector('#catForm');
+  await page.fill('#catForm [name=name]', 'Топовые');
+  await page.check(`#catForm input[name=case][value="${demo.bySlug.griffin.id}"]`);
+  await page.check(`#catForm input[name=case][value="${demo.bySlug.dragon.id}"]`);
+  await page.click('#catForm button[type=submit]');
+  await page.waitForSelector('.cat-head');
+  assert.equal(await page.textContent('.cat-head .sec-title'), 'Топовые');
+  assert.equal(await page.locator('.cat-head + .list .row').count(), 2);
+  // move one more case there from its editor
+  await page.evaluate((id) => (location.hash = '#/admin/cases/' + id), demo.bySlug.mushroom.id);
+  await page.waitForSelector('#caseForm [name=category_id]');
+  await page.selectOption('#caseForm [name=category_id]', { label: 'Топовые' });
+  await page.waitForSelector('.toast', { state: 'detached' }); // the earlier "Saved" toast is gone
+  await page.click('#caseForm button[type=submit]');
+  await page.waitForSelector('.toast.ok');
+  // players: cases without a category first, then the titled block
+  await page.evaluate(() => (location.hash = '#/cases'));
+  await page.waitForSelector('.case-cat');
+  assert.equal(await page.textContent('.case-cat .cat-title'), 'Топовые');
+  assert.deepEqual(await page.locator('.case-cat .case-name').allTextContents(), ['Драгон кейс', 'Грибной кейс', 'Грифон кейс']);
+  assert.equal(await page.locator('.case-card').count(), 9, 'every case still listed once');
+  assert.ok(!(await page.locator('.case-grid').first().textContent()).includes('Грифон'));
+  // delete: the cases go back to the common grid
+  await page.evaluate(() => (location.hash = '#/admin/cases'));
+  await page.waitForSelector('.cat-head [data-cat-edit]');
+  await page.click('.cat-head [data-cat-edit]');
+  await page.waitForSelector('#catDel');
+  await page.click('#catDel');
+  await page.click('#confirmYes');
+  await page.waitForFunction(() => !document.querySelector('.cat-head'));
+  await page.evaluate(() => (location.hash = '#/cases'));
+  await page.waitForSelector('.case-grid');
+  assert.equal(await page.locator('.case-cat').count(), 0);
+  assert.equal(await page.locator('.case-card').count(), 9);
   assert.deepEqual(errors, []);
   await page.context().close();
 });

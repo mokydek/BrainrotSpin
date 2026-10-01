@@ -313,7 +313,7 @@ test('deposit: admin credits coins and gives a brainrot, then completes it', asy
 
 // ------------------------------------------------------------------ withdrawals
 test('withdraw: brainrots leave the inventory and are held by the request', async () => {
-  const ids = await giveItems(other.id, ['Brr Brr Patapim', 'Tung Tung Tung Sahur', 'Cappuccino Assassino']);
+  const ids = await giveItems(other.id, ['Cerberus', 'Garama and Madundung', 'Capitano Moby']);
   const bad = await app.post('/api/requests/withdraw', { user: other, body: { nick: 'BobR', ids: [ids[0], 999999] } });
   assert.equal(bad.body.error, 'items_missing');
   assert.equal((await app.get('/api/inventory', { user: other })).body.inventory.length, 3, 'nothing taken on error');
@@ -329,11 +329,13 @@ test('withdraw: brainrots leave the inventory and are held by the request', asyn
   const w = r.body.request;
   assert.equal(w.kind, 'withdraw');
   assert.deepEqual(r.body.removed.sort(), [ids[0], ids[2]].sort());
-  assert.deepEqual(w.items.map((i) => i.name), ['Brr Brr Patapim', 'Cappuccino Assassino']);
-  assert.equal(w.total, 14 + 12);
+  assert.deepEqual(w.items.map((i) => i.name), ['Cerberus', 'Capitano Moby']);
+  assert.equal(w.total, 150 + 140);
+  assert.equal(w.exchange, null);
+  assert.equal(r.body.rest, 0);
   const left = (await app.get('/api/inventory', { user: other })).body.inventory;
-  assert.deepEqual(left.map((i) => i.item.name), ['Tung Tung Tung Sahur']);
-  assert.match(lastSent(other.id).text, /^📤 Заявку на виведення #\d+ прийнято\.\n\nНік у Roblox: BobR\nБрейнроти: Brr Brr Patapim, Cappuccino Assassino\nНа суму: 26 🪙/);
+  assert.deepEqual(left.map((i) => i.item.name), ['Garama and Madundung']);
+  assert.match(lastSent(other.id).text, /^📤 Заявку на виведення #\d+ прийнято\.\n\nНік у Roblox: BobR\nБрейнроти: Cerberus, Capitano Moby\nНа суму: 290 🪙\n\nАдміністратор/);
   assert.match(lastSent(admin.id).text, /^🆕 Вывод #\d+/);
   assert.equal(lastSent(admin.id).reply_markup.inline_keyboard[0][0].web_app.url, `https://app.brainrotspin.test/?go=admin/withdrawals/${w.id}`);
   const counts = await app.get('/api/admin/requests/counts', { user: admin });
@@ -346,7 +348,7 @@ test('withdraw: brainrots leave the inventory and are held by the request', asyn
   const rej = await app.post(`/api/admin/requests/${w.id}/status`, { user: admin, body: { status: 'rejected' } });
   assert.equal(rej.body.request.status, 'rejected');
   const back = (await app.get('/api/inventory', { user: other })).body.inventory.map((i) => i.item.name).sort();
-  assert.deepEqual(back, ['Brr Brr Patapim', 'Cappuccino Assassino', 'Tung Tung Tung Sahur']);
+  assert.deepEqual(back, ['Capitano Moby', 'Cerberus', 'Garama and Madundung']);
   assert.equal(lastSent(other.id).text, `❌ Заявку #${w.id} відхилено.\nБрейнроти повернулися в інвентар.`);
 });
 
@@ -358,6 +360,70 @@ test('withdraw: completed withdrawal keeps the items out of the game', async () 
   assert.equal(done.body.request.status, 'done');
   assert.equal((await app.get('/api/inventory', { user: other })).body.inventory.length, inv.length - 1);
   assert.equal(lastSent(other.id).text, `✅ Виведення за заявкою #${r.body.request.id} виконано.`);
+});
+
+test('withdraw: only the listed brainrots; others are exchanged for one of them, the remainder goes to the balance', async () => {
+  const allowed = ['Garama and Madundung', 'Cerberus', 'Capitano Moby', 'Burguro and Fryuro', 'Dragon Cannelloni'];
+  const boot = (await app.post('/api/bootstrap', { user: other })).body;
+  assert.deepEqual(boot.withdrawIds.map((id) => app.ctx.game.catalog.items.get(id).name).sort(), [...allowed].sort());
+
+  await app.ctx.db.query('DELETE FROM bs_inventory WHERE user_id = $1', [other.id]);
+  const [croc, goose, garama] = await giveItems(other.id, ['Bombardiro Crocodilo', 'Bombombini Gusini', 'Garama and Madundung']);
+  const all = [croc, goose, garama];
+  const body = (extra) => ({ user: other, body: { nick: 'BobR', ids: all, ...extra } });
+  await freshWindow();
+  const need = await app.post('/api/requests/withdraw', body());
+  assert.equal(need.status, 400);
+  assert.equal(need.body.error, 'need_exchange');
+  assert.equal(need.body.value, 75 + 85, 'value of the ones that must be exchanged');
+  assert.equal((await app.post('/api/requests/withdraw', body({ exchangeTo: itemByName('Dragon Cannelloni').id }))).body.error, 'exchange_too_expensive');
+  assert.equal((await app.post('/api/requests/withdraw', body({ exchangeTo: itemByName('Tung Tung Tung Sahur').id }))).body.error, 'not_withdrawable');
+  assert.equal((await app.post('/api/requests/withdraw', { user: other, body: { nick: 'BobR', ids: [garama], exchangeTo: itemByName('Cerberus').id } })).body.error, 'bad_request');
+  assert.equal((await app.get('/api/inventory', { user: other })).body.inventory.length, 3, 'nothing taken on errors');
+
+  await freshWindow();
+  const before = await balance(other.id);
+  app.tg.reset();
+  const r = await app.post('/api/requests/withdraw', body({ exchangeTo: itemByName('Cerberus').id }));
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.rest, 160 - 150);
+  assert.equal(r.body.balance, before + 10);
+  assert.equal(await balance(other.id), before + 10);
+  const w = r.body.request;
+  assert.deepEqual(w.items.map((i) => i.name), ['Cerberus', 'Garama and Madundung'], 'kept one + the exchange');
+  assert.equal(w.total, 150 + 65);
+  assert.deepEqual(w.exchange.from.map((i) => i.name).sort(), ['Bombardiro Crocodilo', 'Bombombini Gusini']);
+  assert.equal(w.exchange.rest, 10);
+  assert.equal((await app.get('/api/inventory', { user: other })).body.inventory.length, 0);
+  const log = await app.ctx.db.one('SELECT delta FROM bs_balance_log WHERE reason = $1', [`exchange:#${w.id}`]);
+  assert.equal(log.delta, 10);
+  assert.match(lastSent(other.id).text, /Брейнроти: Cerberus, Garama and Madundung\nНа суму: 215 🪙\nЗалишок на баланс: \+10 🪙/);
+  const d = (await app.get(`/api/admin/requests/${w.id}`, { user: admin })).body.request;
+  assert.equal(d.exchange.value, 160);
+
+  // declined: the withdrawable brainrots come back (the exchange stays done)
+  await app.post(`/api/admin/requests/${w.id}/status`, { user: admin, body: { status: 'rejected' } });
+  const back = (await app.get('/api/inventory', { user: other })).body.inventory.map((i) => i.item.name).sort();
+  assert.deepEqual(back, ['Cerberus', 'Garama and Madundung']);
+
+  // admins can allow more brainrots
+  const tung = itemByName('Tung Tung Tung Sahur');
+  const put = await app.put(`/api/admin/items/${tung.id}`, { user: admin, body: { name: tung.name, value: tung.value, emoji: tung.emoji, withdrawable: true } });
+  assert.equal(put.status, 200);
+  assert.ok((await app.get('/api/catalog', { user: other })).body.withdrawIds.includes(tung.id));
+  const items = (await app.get('/api/admin/items', { user: admin })).body.items;
+  assert.equal(items.find((i) => i.id === tung.id).withdrawable, true);
+  // saving without the field keeps it
+  await app.put(`/api/admin/items/${tung.id}`, { user: admin, body: { name: tung.name, value: tung.value, emoji: tung.emoji } });
+  assert.equal((await app.get('/api/admin/items', { user: admin })).body.items.find((i) => i.id === tung.id).withdrawable, true);
+  await app.put(`/api/admin/items/${tung.id}`, { user: admin, body: { name: tung.name, value: tung.value, emoji: tung.emoji, withdrawable: false } });
+  assert.ok(!(await app.get('/api/catalog', { user: other })).body.withdrawIds.includes(tung.id));
+  // a disabled brainrot that can be withdrawn stays in the list (players may still own it)
+  const cer = itemByName('Cerberus');
+  await app.put(`/api/admin/items/${cer.id}`, { user: admin, body: { name: cer.name, value: cer.value, emoji: cer.emoji, enabled: false } });
+  assert.ok((await app.get('/api/catalog', { user: other })).body.withdrawIds.includes(cer.id));
+  await app.put(`/api/admin/items/${cer.id}`, { user: admin, body: { name: cer.name, value: cer.value, emoji: cer.emoji, enabled: true } });
+  await app.ctx.db.query("UPDATE bs_requests SET status = 'done' WHERE user_id = $1 AND status IN ('new', 'active')", [other.id]);
 });
 
 test('a player can have at most 5 open requests', async () => {
