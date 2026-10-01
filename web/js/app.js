@@ -29,8 +29,10 @@ const ICON = {
 const S = {
   me: null,
   cases: [],
+  categories: [],
   items: [],
   itemsById: new Map(),
+  withdrawIds: null, // brainrots that can be withdrawn; others are exchanged for one of them (null: server doesn't say)
   upgrade: { edge: 10, minChance: 1, maxChance: 80 },
   free: null,
   feed: [],
@@ -44,8 +46,9 @@ const S = {
   mode: null, // 'tg' inside Telegram, 'web' on the website
   theme: 'sunset',
   busy: false,
-  up: { sel: new Set(), target: null, tab: 'inv' },
+  up: { sel: new Set(), target: null, tab: 'inv', pct: null },
   freeSub: null, // null unknown, true/false after a check
+  openCount: 1, // how many times a paid case is opened at once (1–3)
   timers: [],
 };
 window.__BS = S; // handy for debugging in the browser console
@@ -358,9 +361,32 @@ function freeStatusText() {
   return f.nextAt && new Date(f.nextAt) > new Date() ? t('freeIn', { t: countdown(f.nextAt) }) : t('freeReady');
 }
 
+function caseCard(c) {
+  return html`<button class="case-card" data-case="${c.id}" style="--cc:${c.color};--cca:${rgba(c.color, 0.34)}">
+    <div class="case-glow"></div>
+    <div class="case-art${c.image ? ' has-img' : ''}">${caseImg(c, 96)}</div>
+    <div class="case-name">${caseName(c)}</div>
+    <div class="case-price">${money(c.price, 15)}</div>
+  </button>`;
+}
+
+/** Paid cases: those without a category first, then one titled block per category. */
+function caseSections() {
+  const paid = S.cases.filter((c) => !c.isFree);
+  const known = new Set(S.categories.map((k) => k.id));
+  const loose = paid.filter((c) => !c.categoryId || !known.has(c.categoryId));
+  const out = [];
+  if (loose.length) out.push(html`<div class="case-grid">${loose.map(caseCard)}</div>`);
+  for (const k of S.categories) {
+    const list = paid.filter((c) => c.categoryId === k.id);
+    if (!list.length) continue;
+    out.push(html`<section class="case-cat" data-cat="${k.id}"><h3 class="sec-title cat-title">${k.name}</h3><div class="case-grid">${list.map(caseCard)}</div></section>`);
+  }
+  return out;
+}
+
 function viewCases(view) {
   const fc = freeCase();
-  const paid = S.cases.filter((c) => !c.isFree);
   render(
     view,
     html`
@@ -374,16 +400,7 @@ function viewCases(view) {
           <div class="free-state ${S.free && S.free.nextAt && new Date(S.free.nextAt) > new Date() ? '' : 'ready'}" id="freeState">${freeStatusText()}</div>
         </button>`
       : ''}
-    <div class="case-grid">
-      ${paid.map(
-        (c) => html`<button class="case-card" data-case="${c.id}" style="--cc:${c.color};--cca:${rgba(c.color, 0.34)}">
-          <div class="case-glow"></div>
-          <div class="case-art${c.image ? ' has-img' : ''}">${caseImg(c, 96)}</div>
-          <div class="case-name">${caseName(c)}</div>
-          <div class="case-price">${money(c.price, 15)}</div>
-        </button>`,
-      )}
-    </div>`,
+    ${caseSections()}`,
   );
   if (fc) {
     S.timers.push(
@@ -476,10 +493,36 @@ function openButton(c) {
     const ready = (!f.requireShare || f.shared) && (!f.requireSub || S.freeSub !== false);
     return html`<button class="btn primary big" data-act="open" data-id="${c.id}" ${ready ? '' : raw('disabled')}>${t('openFree')}</button>`;
   }
-  const enough = S.me.balance >= c.price;
+  const n = openCount(c);
+  const enough = S.me.balance >= c.price * n;
   return enough
-    ? html`<button class="btn primary big" data-act="open" data-id="${c.id}">${t('open')} ${money(c.price, 18)}</button>`
+    ? html`<button class="btn primary big" data-act="open" data-id="${c.id}">${t('open')} ${money(c.price * n, 18)}</button>`
     : html`<button class="btn primary big" disabled>${t('notEnough')}</button>`;
+}
+
+const MAX_OPEN = 3;
+/** Openings at once for this case: the chosen number, or fewer when the balance can't cover it. */
+function openCount(c) {
+  if (!c || c.isFree) return 1;
+  let n = S.openCount;
+  while (n > 1 && S.me.balance < c.price * n) n--;
+  return n;
+}
+
+function countSeg(c) {
+  if (c.isFree) return '';
+  const cur = openCount(c);
+  return html`${[1, 2, 3].slice(0, MAX_OPEN).map(
+    (n) => html`<button data-act="count" data-n="${n}" class="${n === cur ? 'on' : ''}" ${n > 1 && S.me.balance < c.price * n ? raw('disabled') : ''}>x${n}</button>`,
+  )}`;
+}
+
+function roulettesHtml(c, n) {
+  const one = (i) => html`<div class="roulette" ${i === 0 ? raw('id="roulette"') : ''} data-r="${i}" style="--cc:${c.color}">
+      <div class="r-track" ${i === 0 ? raw('id="track"') : ''}>${buildStrip(c).map(rouletteTile)}</div>
+      <div class="r-marker"></div>
+    </div>`;
+  return html`${Array.from({ length: n }, (_, i) => one(i))}`;
 }
 
 function viewCase(view, id) {
@@ -493,11 +536,9 @@ function viewCase(view, id) {
       <div class="vh-title">${caseName(c)}</div>
       <div class="vh-price">${c.isFree ? 'FREE' : money(c.price, 15)}</div>
     </div>
-    <div class="roulette" id="roulette" style="--cc:${c.color}">
-      <div class="r-track" id="track">${buildStrip(c).map(rouletteTile)}</div>
-      <div class="r-marker"></div>
-    </div>
+    <div class="roulettes n${openCount(c)}" id="roulettes">${roulettesHtml(c, openCount(c))}</div>
     <div id="freeTasks">${c.isFree ? freeTasks() : ''}</div>
+    ${c.isFree ? '' : html`<div class="seg count-seg" id="countSeg">${countSeg(c)}</div>`}
     <div class="open-row" id="openRow">${openButton(c)}</div>
     <h3 class="sec-title">${t('contents')}</h3>
     <div class="grid items">${c.items.map((e) => itemTile(e.item, { chance: e.chance }))}</div>`,
@@ -516,52 +557,76 @@ function viewCase(view, id) {
   }
 }
 
-function refreshOpenRow(c) {
+function refreshOpenRow(c, { keepStrips = false } = {}) {
   const row = $('#openRow');
   if (row) render(row, openButton(c));
   const tasks = $('#freeTasks');
   if (tasks && c.isFree) render(tasks, freeTasks());
+  const seg = $('#countSeg');
+  if (seg) render(seg, countSeg(c));
+  if (!keepStrips) setRoulettes(c);
 }
 
-function tileStep() {
-  const tile = $('#track .r-tile');
+/** Shows as many idle strips as there will be openings. */
+function setRoulettes(c, n = openCount(c)) {
+  const wrap = $('#roulettes');
+  if (!wrap || wrap.children.length === n) return;
+  wrap.className = `roulettes n${n}`;
+  render(wrap, roulettesHtml(c, n));
+  positionIdle();
+}
+
+function tileStep(box) {
+  const track = box.querySelector('.r-track');
+  const tile = track && track.querySelector('.r-tile');
   if (!tile) return 110;
-  const gap = parseFloat(getComputedStyle($('#track')).columnGap || getComputedStyle($('#track')).gap) || 8;
+  const gap = parseFloat(getComputedStyle(track).columnGap || getComputedStyle(track).gap) || 8;
   return tile.offsetWidth + gap;
 }
 
-function offsetFor(index, jitter = 0) {
-  const box = $('#roulette');
-  const step = tileStep();
+function offsetFor(box, index, jitter = 0) {
+  const step = tileStep(box);
   const tileW = step - 8;
   return -(index * step - (box.clientWidth / 2 - tileW / 2) + jitter);
 }
 
 function positionIdle() {
-  const track = $('#track');
-  if (!track) return;
-  track.style.transition = 'none';
-  track.style.transform = `translateX(${offsetFor(6)}px)`;
+  for (const box of $$('#roulettes .roulette')) {
+    const track = box.querySelector('.r-track');
+    track.style.transition = 'none';
+    track.style.transform = `translateX(${offsetFor(box, 6)}px)`;
+  }
 }
 
-async function spinTo(c, winner) {
-  const track = $('#track');
-  const items = buildStrip(c, winner);
-  render(track, html`${items.map(rouletteTile)}`);
-  track.style.transition = 'none';
-  track.style.transform = `translateX(${offsetFor(4)}px)`;
-  void track.offsetWidth;
-  const step = tileStep();
-  const jitter = (Math.random() - 0.5) * (step - 30);
-  const target = offsetFor(WIN_INDEX, jitter);
+/** Spins every strip to its own winner at the same time. */
+async function spinTo(c, winners) {
+  const boxes = $$('#roulettes .roulette');
+  // on short screens the Open button may be below the strips: bring them into view
+  const head = $('.top');
+  const top = $('#roulettes').getBoundingClientRect().top - (head ? head.offsetHeight : 0) - 8;
+  if (top < 0) window.scrollTo({ top: window.scrollY + top, behavior: 'smooth' });
   const duration = 5600;
-  track.style.transition = `transform ${duration}ms cubic-bezier(0.1, 0.72, 0.12, 1)`;
-  track.style.transform = `translateX(${target}px)`;
-  // haptic tick each time a tile passes the marker
+  boxes.forEach((box, i) => {
+    const track = box.querySelector('.r-track');
+    render(track, html`${buildStrip(c, winners[i]).map(rouletteTile)}`);
+    track.style.transition = 'none';
+    track.style.transform = `translateX(${offsetFor(box, 4)}px)`;
+  });
+  void boxes[0].offsetWidth;
+  boxes.forEach((box) => {
+    const track = box.querySelector('.r-track');
+    const step = tileStep(box);
+    const jitter = (Math.random() - 0.5) * (step - 30);
+    track.style.transition = `transform ${duration + Math.round(Math.random() * 300)}ms cubic-bezier(0.1, 0.72, 0.12, 1)`;
+    track.style.transform = `translateX(${offsetFor(box, WIN_INDEX, jitter)}px)`;
+  });
+  // haptic tick each time a tile passes the marker (first strip)
+  const box = boxes[0];
+  const track = box.querySelector('.r-track');
+  const step = tileStep(box);
   const start = performance.now();
   let lastIdx = -1;
   let lastTick = 0;
-  const box = $('#roulette');
   await new Promise((resolve) => {
     const tick = (now) => {
       const m = new DOMMatrixReadOnly(getComputedStyle(track).transform);
@@ -571,12 +636,12 @@ async function spinTo(c, winner) {
         lastTick = now;
         haptic.tick();
       }
-      if (now - start < duration + 60) requestAnimationFrame(tick);
+      if (now - start < duration + 360) requestAnimationFrame(tick);
       else resolve();
     };
     requestAnimationFrame(tick);
   });
-  track.children[WIN_INDEX]?.classList.add('win');
+  for (const b of boxes) b.querySelector('.r-track').children[WIN_INDEX]?.classList.add('win');
   await sleep(350);
 }
 
@@ -587,22 +652,27 @@ async function openCase(id) {
   const btn = $('[data-act="open"]');
   if (btn) btn.disabled = true;
   haptic.impact('medium');
+  const count = openCount(c);
   try {
-    const res = c.isFree ? await API.post('/free/open') : await API.post(`/case/${c.id}/open`);
+    const res = c.isFree ? await API.post('/free/open') : await API.post(`/case/${c.id}/open`, { count });
+    const drops = res.drops || [{ invId: res.invId, item: res.item }];
+    setRoulettes(c, drops.length); // one strip per opening
     if (!c.isFree) setBalance(res.balance);
-    await spinTo(c, res.item);
-    S.inventory.unshift({ invId: res.invId, item: res.item, at: new Date().toISOString() });
+    await spinTo(c, drops.map((d) => d.item));
+    for (const d of drops) S.inventory.unshift({ invId: d.invId, item: d.item, at: new Date().toISOString() });
     if (S.stats) {
-      S.stats.casesOpened++;
-      S.stats.totalWon += res.item.value;
-      if (!c.isFree) S.stats.totalSpent += c.price;
-      if (!S.stats.bestDrop || res.item.value > S.stats.bestDrop.value) S.stats.bestDrop = res.item;
+      for (const d of drops) {
+        S.stats.casesOpened++;
+        S.stats.totalWon += d.item.value;
+        if (!c.isFree) S.stats.totalSpent += c.price;
+        if (!S.stats.bestDrop || d.item.value > S.stats.bestDrop.value) S.stats.bestDrop = d.item;
+      }
     }
     if (c.isFree) {
       S.free.nextAt = res.nextAt;
       S.free.shared = false;
     }
-    showResult(res.item, res.invId);
+    showResult(drops);
   } catch (e) {
     showError(e);
     if (e.code === 'need_sub') S.freeSub = false;
@@ -610,11 +680,14 @@ async function openCase(id) {
     if (e.code === 'not_enough' && typeof e.data.balance === 'number') setBalance(e.data.balance);
   } finally {
     S.busy = false;
-    if (!afterBusy() && route().view === 'case' && route().id === id) refreshOpenRow(c);
+    // the strips keep showing the drops; the next opening sets their number again
+    if (!afterBusy() && route().view === 'case' && route().id === id) refreshOpenRow(c, { keepStrips: true });
   }
 }
 
-function showResult(item, invId) {
+function showResult(drops) {
+  if (drops.length > 1) return showResults(drops);
+  const { item, invId } = drops[0];
   const big = ['legendary', 'mythic', 'secret'].includes(item.rarity);
   haptic.notify(big ? 'success' : 'warning');
   haptic.impact('heavy');
@@ -627,6 +700,31 @@ function showResult(item, invId) {
       <div class="result-val">${money(item.value, 20)}</div>
       <div class="row2">
         <button class="btn ghost" data-act="sell-won" data-inv="${invId}">${t('sellFor')} ${money(item.value, 14)}</button>
+        <button class="btn primary" data-act="close-modal">${t('keep')}</button>
+      </div>
+    </div>`,
+    { cls: 'result-sheet' },
+  );
+}
+
+/** Result of opening a case several times at once. */
+function showResults(drops) {
+  const big = drops.some((d) => ['legendary', 'mythic', 'secret'].includes(d.item.rarity));
+  haptic.notify(big ? 'success' : 'warning');
+  haptic.impact('heavy');
+  const total = drops.reduce((s, d) => s + d.item.value, 0);
+  openModal(
+    html`<div class="result multi">
+      <div class="result-title">${t('youWon')}</div>
+      <div class="result-items n${drops.length}">${drops.map(
+        (d) => html`<div class="item r-${d.item.rarity}">
+          <div class="item-art">${art(d.item)}</div>
+          <div class="item-name">${d.item.name}</div>
+          <div class="item-val">${coin(12)}${fmt(d.item.value)}</div>
+        </div>`,
+      )}</div>
+      <div class="row2">
+        <button class="btn ghost" data-act="sell-won" data-inv="${drops.map((d) => d.invId).join(',')}">${t('sellFor')} ${money(total, 14)}</button>
         <button class="btn primary" data-act="close-modal">${t('keep')}</button>
       </div>
     </div>`,
@@ -713,6 +811,11 @@ function viewUpgrade(view) {
   const have = new Set(S.inventory.map((i) => i.invId));
   for (const id of [...S.up.sel]) if (!have.has(id)) S.up.sel.delete(id);
   const bet = upBet();
+  if (S.up.pct) {
+    // the bet may have changed elsewhere (items sold): pick again for the same percentage
+    const it = bet ? targetForChance(bet, S.up.pct) : null;
+    S.up.target = it ? it.id : null;
+  }
   const target = S.up.target ? S.itemsById.get(S.up.target) : null;
   if (target && target.value <= bet) S.up.target = null;
   render(
@@ -728,6 +831,7 @@ function viewUpgrade(view) {
       <div class="g-center"><div class="g-pct" id="gPct">0%</div><div class="g-lbl">${t('chance')}</div></div>
     </div>
     <div class="up-slots" id="upSlots"></div>
+    <div class="seg up-pcts" id="upPcts"></div>
     <div class="open-row"><button class="btn primary big" data-act="do-upgrade" id="upBtn">${t('upgrade')}</button></div>
     <div class="seg" id="upSeg"></div>
     <div id="upGrid"></div>`,
@@ -765,6 +869,9 @@ function updateUpgrade() {
   );
   const btn = $('#upBtn');
   if (btn) btn.disabled = !(bet > 0 && target) || S.busy;
+  if (!target) S.up.pct = null;
+  const pcts = $('#upPcts');
+  if (pcts) render(pcts, html`${UP_PCTS.map((p) => html`<button data-act="up-pct" data-p="${p}" class="${S.up.pct === p ? 'on' : ''}">${p}%</button>`)}`);
   render(
     $('#upSeg'),
     html`<button data-act="up-tab" data-v="inv" class="${S.up.tab === 'inv' ? 'on' : ''}">${t('myItems')} <span class="cnt">${S.inventory.length}</span></button>
@@ -811,6 +918,18 @@ function updateUpgrade() {
       )}</div>`,
     );
   }
+}
+
+const UP_PCTS = [75, 50, 30];
+
+/** The target whose chance with the current bet is the closest to `pct`. */
+function targetForChance(bet, pct) {
+  let best = null;
+  for (const it of upTargets(bet)) {
+    const d = Math.abs(upChance(bet, it.value) - pct);
+    if (!best || d < best.d || (d === best.d && it.value > best.it.value)) best = { it, d };
+  }
+  return best ? best.it : null;
 }
 
 async function doUpgrade() {
@@ -1169,8 +1288,9 @@ function topupBrainrots() {
 function openWithdraw() {
   if (!S.inventory.length) return;
   const sel = new Set();
+  let target = null; // brainrot chosen in exchange for the ones that can't be withdrawn
   const sheet = openModal(
-    html`<div class="wd">
+    html`<div class="wd" id="wdPage">
       <div class="sheet-title">${t('wdTitle')}</div>
       <form class="form tu-form" id="wdForm" autocomplete="off">
         <label>${t('nick')}<input class="input" name="nick" maxlength="32" value="${S.me.nick || ''}" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
@@ -1185,10 +1305,86 @@ function openWithdraw() {
         )}</div>
         <div class="wd-foot"><button class="btn primary big" type="submit" id="wdBtn" disabled>${t('withdraw')}</button></div>
       </form>
-    </div>`,
+    </div>
+    <div class="wd hidden" id="wdSwap"></div>`,
     { cls: 'tall' },
   );
   const btn = sheet.querySelector('#wdBtn');
+  const allowed = new Set(S.withdrawIds || []);
+  let serverValue = null; // value the server counted for the exchange (wins over the local estimate)
+  const picked = () => S.inventory.filter((i) => sel.has(i.invId));
+  const swapValue = () => serverValue ?? picked().filter((i) => !allowed.has(i.item.id)).reduce((s, i) => s + i.item.value, 0);
+  const nickValue = () => String(new FormData(sheet.querySelector('#wdForm')).get('nick') || '').trim();
+
+  /** Step 2: the picked brainrots can't be withdrawn — choose one that can, the rest goes to the balance. */
+  function showSwap() {
+    const value = swapValue();
+    const box = sheet.querySelector('#wdSwap');
+    const options = (S.withdrawIds || []).map((id) => S.itemsById.get(id)).filter(Boolean).sort((a, b) => b.value - a.value);
+    if (target && target.value > value) target = null;
+    render(
+      box,
+      html`<div class="tu-head"><button type="button" class="back" id="wdBack" aria-label="${t('back')}">${raw(ICON.back)}</button><div class="sheet-title">${t('wdChoose')}</div><span></span></div>
+      <div class="grid items" id="wdTargets">${options.map(
+        (it) => html`<button type="button" class="item pick r-${it.rarity} ${target && target.id === it.id ? 'sel' : ''}" data-wt="${it.id}" ${it.value > value ? raw('disabled') : ''}>
+          <div class="pick-mark">${raw(ICON.check)}</div>
+          <div class="item-art">${art(it)}</div>
+          <div class="item-name">${it.name}</div>
+          <div class="item-val">${coin(12)}${fmt(it.value)}</div>
+          ${it.value <= value ? html`<div class="wd-rest">${t('wdRest')} +${fmt(value - it.value)}</div>` : ''}
+        </button>`,
+      )}</div>
+      <div class="wd-foot"><button class="btn primary big" type="button" id="wdGo" ${target ? '' : raw('disabled')}>${t('withdraw')}</button></div>`,
+    );
+    sheet.querySelector('#wdPage').classList.add('hidden');
+    box.classList.remove('hidden');
+    sheet.scrollTop = 0;
+  }
+  sheet.querySelector('#wdSwap').addEventListener('click', (e) => {
+    if (e.target.closest('#wdBack')) {
+      sheet.querySelector('#wdSwap').classList.add('hidden');
+      sheet.querySelector('#wdPage').classList.remove('hidden');
+      return;
+    }
+    const b = e.target.closest('[data-wt]');
+    if (b && !b.disabled) {
+      target = S.itemsById.get(Number(b.dataset.wt)) || null;
+      haptic.tick();
+      showSwap();
+      return;
+    }
+    const go = e.target.closest('#wdGo');
+    if (go && !go.disabled && target) send(go, target.id);
+  });
+
+  async function send(button, exchangeTo) {
+    const nick = nickValue();
+    button.disabled = true;
+    try {
+      const r = await API.post('/requests/withdraw', { nick, ids: [...sel], ...(exchangeTo ? { exchangeTo } : {}) });
+      const gone = new Set(r.removed);
+      S.inventory = S.inventory.filter((i) => !gone.has(i.invId));
+      for (const id of gone) S.up.sel.delete(id);
+      S.me.nick = r.request.nick;
+      if (typeof r.balance === 'number') setBalance(r.balance);
+      closeModal();
+      haptic.notify('success');
+      toast(t('reqSent', { id: r.request.id }), 'ok');
+      if (route().view === 'profile') viewProfile($('#view'));
+    } catch (err) {
+      button.disabled = false;
+      if (err.code === 'need_exchange') {
+        if (typeof err.data.value === 'number') serverValue = err.data.value;
+        return showSwap();
+      }
+      showError(err);
+      if (err.code === 'items_missing') {
+        await refreshInventory();
+        closeModal();
+        if (route().view === 'profile') viewProfile($('#view'));
+      }
+    }
+  }
   const update = () => {
     const total = S.inventory.filter((i) => sel.has(i.invId)).reduce((s, i) => s + i.item.value, 0);
     render(btn, sel.size ? html`${t('withdraw')} ${money(total, 18)}` : html`${t('withdraw')}`);
@@ -1201,36 +1397,18 @@ function openWithdraw() {
     if (sel.has(id)) sel.delete(id);
     else if (sel.size >= 100) return;
     else sel.add(id);
+    serverValue = null;
     b.classList.toggle('sel', sel.has(id));
     haptic.tick();
     update();
   });
   const form = sheet.querySelector('#wdForm');
-  form.addEventListener('submit', async (e) => {
+  form.addEventListener('submit', (e) => {
     e.preventDefault();
-    const nick = String(new FormData(form).get('nick') || '').trim();
-    if (nick.replace(/^@+/, '').length < 3) return showError({ code: 'bad_nick' });
+    if (nickValue().replace(/^@+/, '').length < 3) return showError({ code: 'bad_nick' });
     if (!sel.size) return;
-    btn.disabled = true;
-    try {
-      const r = await API.post('/requests/withdraw', { nick, ids: [...sel] });
-      const gone = new Set(r.removed);
-      S.inventory = S.inventory.filter((i) => !gone.has(i.invId));
-      for (const id of gone) S.up.sel.delete(id);
-      S.me.nick = r.request.nick;
-      closeModal();
-      haptic.notify('success');
-      toast(t('reqSent', { id: r.request.id }), 'ok');
-      if (route().view === 'profile') viewProfile($('#view'));
-    } catch (err) {
-      btn.disabled = false;
-      showError(err);
-      if (err.code === 'items_missing') {
-        await refreshInventory();
-        closeModal();
-        if (route().view === 'profile') viewProfile($('#view'));
-      }
-    }
+    if (S.withdrawIds && picked().some((i) => !allowed.has(i.item.id))) return showSwap();
+    send(btn, null);
   });
 }
 
@@ -1266,6 +1444,8 @@ function adminCtx() {
     async reloadCatalog() {
       const r = await API.get('/catalog');
       S.cases = r.cases;
+      S.categories = r.categories || [];
+      if (r.withdrawIds) S.withdrawIds = r.withdrawIds;
       S.items = r.items;
       S.itemsById = new Map(r.items.map((i) => [i.id, i]));
       S.upgrade = r.upgrade;
@@ -1294,6 +1474,15 @@ const actions = {
   lang: (el) => openLang(el),
   theme: (el) => openTheme(el),
   open: (el) => openCase(Number(el.dataset.id)),
+  count: (el) => {
+    if (S.busy) return;
+    const r = route();
+    const c = r.view === 'case' && S.cases.find((x) => x.id === r.id);
+    if (!c) return;
+    S.openCount = Math.min(MAX_OPEN, Math.max(1, Number(el.dataset.n) || 1));
+    haptic.tick();
+    refreshOpenRow(c);
+  },
   subscribe: () => {
     const url = S.free && S.free.channelUrl;
     if (!url) return;
@@ -1305,7 +1494,7 @@ const actions = {
   'sell-won': async (el) => {
     el.disabled = true;
     try {
-      await sellItems([Number(el.dataset.inv)]);
+      await sellItems(el.dataset.inv.split(',').map(Number));
       closeModal();
       const r = route();
       if (r.view === 'case') {
@@ -1355,6 +1544,11 @@ const actions = {
     if (S.up.sel.has(id)) S.up.sel.delete(id);
     else if (S.up.sel.size >= 6) return toast(t('maxItems'));
     else S.up.sel.add(id);
+    // a chosen percentage follows the new bet
+    if (S.up.pct) {
+      const it = upBet() ? targetForChance(upBet(), S.up.pct) : null;
+      S.up.target = it ? it.id : null;
+    }
     haptic.tick();
     updateUpgrade();
   },
@@ -1362,6 +1556,18 @@ const actions = {
     if (S.busy) return;
     const id = Number(el.dataset.id);
     S.up.target = S.up.target === id ? null : id;
+    S.up.pct = null;
+    haptic.tick();
+    updateUpgrade();
+  },
+  'up-pct': (el) => {
+    if (S.busy) return;
+    const bet = upBet();
+    if (!bet) return toast(t('pickItems'));
+    const it = targetForChance(bet, Number(el.dataset.p));
+    if (!it) return toast(t('noTargets'));
+    S.up.target = it.id;
+    S.up.pct = Number(el.dataset.p);
     haptic.tick();
     updateUpgrade();
   },
@@ -1453,6 +1659,8 @@ async function showNoAuth() {
 function applyBootstrap(b) {
   S.me = b.me;
   S.cases = b.cases;
+  S.categories = b.categories || [];
+  S.withdrawIds = Array.isArray(b.withdrawIds) ? b.withdrawIds : null;
   S.items = b.items;
   S.itemsById = new Map(b.items.map((i) => [i.id, i]));
   S.upgrade = b.upgrade;

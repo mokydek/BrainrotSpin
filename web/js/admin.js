@@ -82,30 +82,97 @@ async function overview(body) {
 
 // ------------------------------------------------------------------ cases
 async function casesList(body) {
-  const { cases } = await C.API.get('/admin/cases');
+  const { cases, categories } = await C.API.get('/admin/cases');
   if (!body.isConnected) return;
   const lang = document.documentElement.lang || 'ru';
-  C.render(
-    body,
-    h`<div class="adm-actions"><a class="btn small" href="#/admin/cases/new">+ ${C.t('a.newCase')}</a></div>
-    <div class="list">${cases.map(
-      (c) => h`<a class="row" href="#/admin/cases/${c.id}">
+  const row = (c) => h`<a class="row" href="#/admin/cases/${c.id}">
         <span class="row-art">${C.caseArt(c, 44)}</span>
         <span class="row-main"><b>${c['name_' + lang] || c.name_ru}</b><small>${c.is_free ? 'FREE' : C.money(c.price, 12)} · ${C.t('a.rtp')}: ${c.rtp === null ? '—' : C.fmt(c.rtp) + '%'}</small></span>
         <span class="badge ${c.enabled ? 'ok' : 'off'}">${c.enabled ? C.t('a.on') : C.t('a.off')}</span>
-      </a>`,
-    )}</div>`,
+      </a>`;
+  const known = new Set(categories.map((k) => k.id));
+  const loose = cases.filter((c) => c.is_free || !c.category_id || !known.has(c.category_id));
+  C.render(
+    body,
+    h`<div class="adm-actions"><a class="btn small" href="#/admin/cases/new">+ ${C.t('a.newCase')}</a><button type="button" class="btn small ghost" data-cat-edit="new">+ ${C.t('a.category')}</button></div>
+    ${categories.length ? h`<h4 class="sec-title">${C.t('a.noCategory')}</h4>` : ''}
+    <div class="list">${loose.map(row)}</div>
+    ${categories.map(
+      (k) => h`<div class="cat-head" data-cat="${k.id}"><h4 class="sec-title">${k.name}</h4><button type="button" class="btn small ghost" data-cat-edit="${k.id}">${C.t('a.edit')}</button></div>
+        <div class="list">${cases.filter((c) => !c.is_free && c.category_id === k.id).map(row)}</div>`,
+    )}`,
   );
+  body.onclick = (e) => {
+    const b = e.target.closest('[data-cat-edit]');
+    if (!b) return;
+    const id = b.dataset.catEdit === 'new' ? null : Number(b.dataset.catEdit);
+    categoryEditor(categories.find((k) => k.id === id) || null, cases, () => casesList(body).catch(adminError));
+  };
+}
+
+/** Create / edit a category: name, order and which cases are in it. */
+function categoryEditor(cat, cases, done) {
+  const lang = document.documentElement.lang || 'ru';
+  const paid = cases.filter((c) => !c.is_free);
+  const sheet = C.openModal(
+    h`<form class="form" id="catForm" autocomplete="off">
+      <div class="sheet-title">${cat ? cat.name : C.t('a.newCategory')}</div>
+      <div class="grid3">
+        <label class="span2">${C.t('a.catName')}<input class="input" name="name" maxlength="40" value="${cat ? cat.name : ''}"></label>
+        <label>${C.t('a.sort')}<input class="input" name="sort" type="number" step="1" value="${cat ? cat.sort : 0}"></label>
+      </div>
+      <h4 class="sec-title">${C.t('a.catCases')}</h4>
+      <div class="list cat-cases">${paid.map(
+        (c) => h`<label class="row cat-case"><input type="checkbox" name="case" value="${c.id}" ${cat && c.category_id === cat.id ? C.raw('checked') : ''}>
+          <span class="row-art">${C.caseArt(c, 40)}</span>
+          <span class="row-main"><b>${c['name_' + lang] || c.name_ru}</b><small>${C.money(c.price, 11)}</small></span>
+        </label>`,
+      )}</div>
+      <div class="form-foot">
+        ${cat ? h`<button type="button" class="btn ghost danger" id="catDel">${C.t('a.delete')}</button>` : ''}
+        <button type="submit" class="btn primary">${C.t('a.save')}</button>
+      </div>
+    </form>`,
+    { cls: 'tall' },
+  );
+  const form = sheet.querySelector('#catForm');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = new FormData(form);
+    const payload = { name: String(f.get('name') || '').trim(), sort: Number(f.get('sort') || 0), caseIds: f.getAll('case').map(Number) };
+    if (!payload.name) return adminError({ code: 'bad_field', data: { field: C.t('a.catName') } });
+    try {
+      if (cat) await C.API.put(`/admin/categories/${cat.id}`, payload);
+      else await C.API.post('/admin/categories', payload);
+      await C.reloadCatalog();
+      C.toast(C.t('a.saved'), 'ok');
+      C.closeModal();
+      done();
+    } catch (err) {
+      adminError(err);
+    }
+  });
+  sheet.querySelector('#catDel')?.addEventListener('click', async () => {
+    if (!(await C.confirmModal(C.t('a.deleteCategory')))) return;
+    try {
+      await C.API.del(`/admin/categories/${cat.id}`);
+      await C.reloadCatalog();
+      done();
+    } catch (err) {
+      adminError(err);
+    }
+  });
 }
 
 async function caseEditor(body, id) {
   let data;
+  const listed = await C.API.get('/admin/cases');
+  if (!body.isConnected) return;
+  const categories = listed.categories || [];
   if (id === 'new') {
-    data = { id: null, name_ru: '', name_uk: '', name_en: '', price: 100, is_free: false, emoji: '📦', color: '#f59e0b', sort: 100, enabled: true, items: [] };
+    data = { id: null, name_ru: '', name_uk: '', name_en: '', price: 100, is_free: false, emoji: '📦', color: '#f59e0b', sort: 100, enabled: true, category_id: null, items: [] };
   } else {
-    const { cases } = await C.API.get('/admin/cases');
-    if (!body.isConnected) return;
-    data = cases.find((c) => c.id === Number(id));
+    data = listed.cases.find((c) => c.id === Number(id));
     if (!data) return C.go('#/admin/cases');
   }
   const items = new Map(C.S.items.map((i) => [i.id, i]));
@@ -157,6 +224,11 @@ async function caseEditor(body, id) {
         <label>${C.t('a.color')}<input class="input color" name="color" type="color" value="${data.color}"></label>
         <label>${C.t('a.sort')}<input class="input" name="sort" type="number" step="1" value="${data.sort}"></label>
       </div>
+      ${data.is_free
+        ? ''
+        : h`<label>${C.t('a.category')}<select class="input" name="category_id"><option value="">—</option>${categories.map(
+            (k) => h`<option value="${k.id}" ${data.category_id === k.id ? C.raw('selected') : ''}>${k.name}</option>`,
+          )}</select></label>`}
       ${data.id ? h`<div class="img-row" id="cImgRow">${caseImgRow()}</div>` : ''}
       <label class="switch"><input type="checkbox" name="enabled" ${data.enabled ? C.raw('checked') : ''}><i></i>${C.t('a.enabled')}</label>
       <h4 class="sec-title">${C.t('a.loot')}</h4>
@@ -272,6 +344,7 @@ async function caseEditor(body, id) {
       sort: Number(f.get('sort') || 0),
       enabled: f.get('enabled') === 'on',
       price: data.is_free ? 0 : Number(f.get('price')),
+      ...(data.is_free ? {} : { category_id: f.get('category_id') ? Number(f.get('category_id')) : null }),
       items: loot.map((x) => ({ itemId: x.itemId, chance: Number(x.chance) })),
     };
     try {
@@ -366,7 +439,7 @@ function resizeImage(file, max = 256) {
 }
 
 function itemEditor(item, done) {
-  const it = item || { id: null, name: '', value: 10, emoji: '🎁', rarityOverride: null, image_url: '', enabled: true, hasUpload: false };
+  const it = item || { id: null, name: '', value: 10, emoji: '🎁', rarityOverride: null, image_url: '', enabled: true, withdrawable: false, hasUpload: false };
   const sheet = C.openModal(
     h`<form class="form" id="itemForm" autocomplete="off">
       <div class="sheet-title">${it.id ? it.name : C.t('a.newItem')}</div>
@@ -387,6 +460,7 @@ function itemEditor(item, done) {
         : ''}
       <label>${C.t('a.imageUrl')}<input class="input" name="image_url" maxlength="500" value="${it.image_url || ''}" placeholder="https://…"></label>
       <label class="switch"><input type="checkbox" name="enabled" ${it.enabled ? C.raw('checked') : ''}><i></i>${C.t('a.enabled')}</label>
+      <label class="switch"><input type="checkbox" name="withdrawable" ${it.withdrawable ? C.raw('checked') : ''}><i></i>${C.t('a.withdrawable')}</label>
       <div class="form-foot"><button type="submit" class="btn primary">${C.t('a.save')}</button></div>
     </form>`,
     { cls: 'tall' },
@@ -426,6 +500,7 @@ function itemEditor(item, done) {
       rarity: f.get('rarity') || null,
       image_url: f.get('image_url') || null,
       enabled: f.get('enabled') === 'on',
+      withdrawable: f.get('withdrawable') === 'on',
     };
     try {
       if (it.id) await C.API.put(`/admin/items/${it.id}`, payload);
@@ -874,6 +949,11 @@ function drawReq(body, d, { keep = false } = {}) {
         ? h`<h4 class="sec-title">${C.t('a.r.items')} <span class="cnt">${r.items.length}</span></h4>
            <div class="list">${r.items.map(itemLine)}</div>
            <div class="kv"><span>${C.t('a.r.total')}</span><b>${C.money(r.total, 13)}</b></div>`
+        : ''}
+      ${r.exchange
+        ? h`<h4 class="sec-title">${C.t('a.r.swapped')} <span class="cnt">${r.exchange.from.length}</span></h4>
+           <div class="list">${r.exchange.from.map(itemLine)}</div>
+           <div class="kv"><span>${C.t('a.r.rest')}</span><b>+${C.money(r.exchange.rest, 13)}</b></div>`
         : ''}
       ${r.kind === 'deposit' && r.method === 'brainrot' && r.coins ? h`<div class="kv"><span>${C.t('a.r.credited')}</span><b>${C.money(r.coins, 13)}</b></div>` : ''}
       ${r.kind === 'deposit' && r.items.length ? h`<h4 class="sec-title">${C.t('a.r.given')} <span class="cnt">${r.items.length}</span></h4><div class="list">${r.items.map(itemLine)}</div>` : ''}
