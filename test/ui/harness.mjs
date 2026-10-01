@@ -67,8 +67,12 @@ export async function startDemo({ dbName = 'bs_t_ui', env = {} } = {}) {
   });
   await app.message(kira, 'Добавила, ник KiraPlays, жду 🙌');
   await app.post('/api/requests/deposit', { user: lesha, body: { nick: 'LeshaRBX', details: 'La Vacca Saturno Saturnita' } });
-  const inv = (await app.get('/api/inventory', { user: danya })).body.inventory;
-  await app.post('/api/requests/withdraw', { user: danya, body: { nick: 'DanyaPro', ids: inv.slice(0, 3).map((i) => i.invId) } });
+  const giveTo = async (u, name) => {
+    const it = [...ctx.game.catalog.items.values()].find((i) => i.name === name);
+    return (await ctx.db.one("INSERT INTO bs_inventory (user_id, item_id, source) VALUES ($1, $2, 'demo') RETURNING id", [u.id, it.id])).id;
+  };
+  const wIds = [await giveTo(danya, 'Dragon Cannelloni'), await giveTo(danya, 'Cerberus'), await giveTo(danya, 'Garama and Madundung')];
+  await app.post('/api/requests/withdraw', { user: danya, body: { nick: 'DanyaPro', ids: wIds } });
   await app.post('/api/topup/stars', { user: OTHERS[5], body: { stars: 250 } });
   await app.sendUpdate({
     message: {

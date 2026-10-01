@@ -11,6 +11,7 @@ export class GameError extends Error {
 }
 
 export const cryptoRng = { int: (max) => crypto.randomInt(0, max) };
+export const MAX_OPEN = 3; // openings of one case at once
 
 export function displayName(u) {
   const name = (u.first_name || '').trim() || (u.username ? `@${u.username}` : `#${u.id}`);
@@ -37,7 +38,7 @@ export function pickWeighted(entries, rng = cryptoRng) {
 }
 
 export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
-  const catalog = { items: new Map(), cases: new Map(), order: [] };
+  const catalog = { items: new Map(), cases: new Map(), order: [], categories: [] };
 
   function publicItem(it) {
     if (!it) return null;
@@ -63,6 +64,7 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
       name: { ru: c.name_ru, uk: c.name_uk, en: c.name_en },
       price: c.price,
       isFree: c.is_free,
+      categoryId: c.category_id,
       emoji: c.emoji,
       color: c.color,
       image: caseImage(c),
@@ -74,15 +76,16 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
 
   async function reloadCatalog() {
     const items = await db.many(
-      `SELECT id, name, value, emoji, rarity, image_url, enabled,
+      `SELECT id, name, value, emoji, rarity, image_url, enabled, coalesce(withdrawable, FALSE) AS withdrawable,
               (image_data IS NOT NULL) AS has_image, md5(coalesce(image_data, '')) AS img_ver
          FROM bs_items ORDER BY value, id`,
     );
     const cases = await db.many(
-      `SELECT id, slug, name_ru, name_uk, name_en, price, is_free, emoji, color, sort, enabled,
+      `SELECT id, slug, name_ru, name_uk, name_en, price, is_free, emoji, color, sort, enabled, category_id,
               (image_data IS NOT NULL) AS has_image, md5(coalesce(image_data, '')) AS img_ver
          FROM bs_cases ORDER BY sort, id`,
     );
+    catalog.categories = await db.many('SELECT id, name, sort FROM bs_categories ORDER BY sort, id');
     const links = await db.many('SELECT case_id, item_id, chance FROM bs_case_items ORDER BY case_id, item_id');
     catalog.items = new Map(items.map((i) => [i.id, i]));
     const map = new Map(cases.map((c) => [c.id, { ...c, items: [] }]));
@@ -100,6 +103,15 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
       .map((id) => catalog.cases.get(id))
       .filter((c) => includeDisabled || (c.enabled && c.items.length > 0))
       .map(publicCase);
+  }
+
+  /** Ids of brainrots that can be withdrawn (also disabled ones a player may still hold). */
+  function withdrawIds() {
+    return [...catalog.items.values()].filter((i) => i.withdrawable).map((i) => i.id);
+  }
+
+  function listCategories() {
+    return catalog.categories.map((c) => ({ id: c.id, name: c.name, sort: c.sort }));
   }
 
   function listItems({ includeDisabled = false } = {}) {
@@ -148,31 +160,41 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
   }
 
   // ---------------------------------------------------------------- cases
-  async function openCase(user, caseId) {
+  /** Opens a paid case `count` times (1–3) in one go; the price is charged for every opening. */
+  async function openCase(user, caseId, count = 1) {
     const c = catalog.cases.get(Number(caseId));
     if (!c || !c.enabled || !c.items.length) throw new GameError('case_not_found', 404);
     if (c.is_free) throw new GameError('use_free_endpoint');
-    const pick = pickWeighted(c.items, rng);
-    const item = catalog.items.get(pick.item_id);
+    const n = count === undefined || count === null ? 1 : Number(count);
+    if (!Number.isInteger(n) || n < 1 || n > MAX_OPEN) throw new GameError('bad_request');
+    const items = Array.from({ length: n }, () => catalog.items.get(pickWeighted(c.items, rng).item_id));
+    const cost = c.price * n;
+    const won = items.reduce((s, it) => s + it.value, 0);
+    const best = items.reduce((a, b) => (b.value > a.value ? b : a));
 
     const res = await db.tx(async (cl) => {
       const u = (await cl.query('SELECT id, balance FROM bs_users WHERE id = $1 FOR UPDATE', [user.id])).rows[0];
       if (!u) throw new GameError('unauthorized', 401);
-      if (u.balance < c.price) throw new GameError('not_enough', 400, { balance: u.balance });
-      const invId = await giveItem(cl, user.id, item, 'case');
+      if (u.balance < cost) throw new GameError('not_enough', 400, { balance: u.balance });
+      const out = [];
+      for (const item of items) {
+        const invId = await giveItem(cl, user.id, item, 'case');
+        const drop = await recordDrop(cl, user, item, c, 'case');
+        out.push({ invId, item, drop });
+      }
       const upd = await cl.query(
-        `UPDATE bs_users SET balance = balance - $2, cases_opened = cases_opened + 1,
+        `UPDATE bs_users SET balance = balance - $2, cases_opened = cases_opened + $5,
                 total_spent = total_spent + $2, total_won = total_won + $3,
-                best_item_id = CASE WHEN $3 > best_value THEN $4 ELSE best_item_id END,
-                best_value = GREATEST(best_value, $3)
+                best_item_id = CASE WHEN $6 > best_value THEN $4 ELSE best_item_id END,
+                best_value = GREATEST(best_value, $6)
           WHERE id = $1 RETURNING balance`,
-        [user.id, c.price, item.value, item.id],
+        [user.id, cost, won, best.id, n, best.value],
       );
-      const drop = await recordDrop(cl, user, item, c, 'case');
-      return { invId, balance: upd.rows[0].balance, drop };
+      return { out, balance: upd.rows[0].balance };
     });
-    live?.pushDrop(res.drop);
-    return { invId: res.invId, item: publicItem(item), balance: res.balance };
+    for (const o of res.out) live?.pushDrop(o.drop);
+    const drops = res.out.map((o) => ({ invId: o.invId, item: publicItem(o.item) }));
+    return { invId: drops[0].invId, item: drops[0].item, drops, balance: res.balance };
   }
 
   function freeState(u) {
@@ -397,6 +419,8 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
     catalog,
     reloadCatalog,
     listCases,
+    listCategories,
+    withdrawIds,
     listItems,
     publicItem,
     caseImage,

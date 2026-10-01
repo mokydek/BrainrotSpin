@@ -84,6 +84,9 @@ export function createRequests({ db, settings, game, tg, config }) {
       details: r.details,
       items: (r.items || []).map(itemView),
       total: r.total,
+      exchange: r.exchange
+        ? { from: r.exchange.from.map(itemView), to: r.exchange.to, rest: r.exchange.rest, value: r.exchange.from.reduce((s, i) => s + i.value, 0) }
+        : null,
       coins: r.coins,
       stars: r.stars,
       createdAt: r.created_at,
@@ -167,7 +170,7 @@ export function createRequests({ db, settings, game, tg, config }) {
     const text =
       row.kind === 'deposit'
         ? t.depositCreated(row.id, row.nick, row.details)
-        : t.withdrawCreated(row.id, row.nick, itemNames(row.items), row.total);
+        : t.withdrawCreated(row.id, row.nick, itemNames(row.items), row.total, row.exchange ? row.exchange.rest : 0);
     const sent = await tg.send(user.id, clip(text), replyKb(t, row.id, t.btnWrite));
     if (sent.ok) await db.query('UPDATE bs_request_msgs SET tg_msg_id = $2 WHERE id = $1', [sysId, sent.message.message_id]);
     await markBlocked(sent, user.id);
@@ -192,28 +195,56 @@ export function createRequests({ db, settings, game, tg, config }) {
     return { request: view(row) };
   }
 
+  /**
+   * Withdrawal of inventory brainrots. Only "withdrawable" ones leave as they are; the others
+   * must be exchanged for one withdrawable brainrot (`exchangeTo`) worth no more than they are,
+   * the difference goes to the balance.
+   */
   async function createWithdraw(user, body = {}) {
     const nick = cleanNick(body.nick);
     const ids = parseIds(body.ids);
-    const { row, sysId, removed } = await db.tx(async (cl) => {
+    let target = null;
+    if (body.exchangeTo !== undefined && body.exchangeTo !== null) {
+      target = game.catalog.items.get(Number(body.exchangeTo));
+      if (!target || !target.withdrawable || !target.enabled) throw new GameError('not_withdrawable');
+    }
+    const entry = (it, invId) => ({ ...(invId ? { invId } : {}), itemId: it.id, name: it.name, value: it.value, emoji: it.emoji });
+    const { row, sysId, removed, rest, balance } = await db.tx(async (cl) => {
       await lockUserAndCheckLimit(cl, user.id);
       const del = await cl.query('DELETE FROM bs_inventory WHERE user_id = $1 AND id = ANY($2::bigint[]) RETURNING id, item_id', [
         user.id,
         ids,
       ]);
       if (del.rowCount !== ids.length) throw new GameError('items_missing');
-      const items = del.rows
-        .map((x) => {
-          const it = game.catalog.items.get(x.item_id);
-          return { invId: x.id, itemId: x.item_id, name: it ? it.name : `#${x.item_id}`, value: it ? it.value : 0, emoji: it ? it.emoji : '🎁' };
-        })
-        .sort((a, b) => b.value - a.value);
+      const taken = del.rows.map((x) => ({ invId: x.id, it: game.catalog.items.get(x.item_id) })).filter((x) => x.it);
+      const keep = taken.filter((x) => x.it.withdrawable);
+      const swap = taken.filter((x) => !x.it.withdrawable);
+      const swapValue = swap.reduce((s, x) => s + x.it.value, 0);
+      if (swap.length && !target) throw new GameError('need_exchange', 400, { value: swapValue });
+      if (!swap.length && target) throw new GameError('bad_request');
+      if (target && target.value > swapValue) throw new GameError('exchange_too_expensive', 400, { value: swapValue });
+      const items = keep.map((x) => entry(x.it, x.invId));
+      if (target) items.push(entry(target));
+      items.sort((a, b) => b.value - a.value);
       const total = items.reduce((s, i) => s + i.value, 0);
       const out = await insertRequest(cl, user, { kind: 'withdraw', nick, items, total });
-      return { ...out, removed: del.rows.map((x) => x.id) };
+      let restCoins = 0;
+      let bal = null;
+      if (target) {
+        restCoins = swapValue - target.value;
+        const exchange = { from: swap.map((x) => entry(x.it, x.invId)), to: target.id, rest: restCoins };
+        await cl.query('UPDATE bs_requests SET exchange = $2::jsonb WHERE id = $1', [out.row.id, JSON.stringify(exchange)]);
+        out.row.exchange = exchange;
+        const upd = await cl.query('UPDATE bs_users SET balance = balance + $2 WHERE id = $1 RETURNING balance', [user.id, restCoins]);
+        bal = upd.rows[0].balance;
+        if (restCoins > 0) {
+          await cl.query('INSERT INTO bs_balance_log (user_id, delta, reason) VALUES ($1, $2, $3)', [user.id, restCoins, `exchange:#${out.row.id}`]);
+        }
+      }
+      return { ...out, removed: del.rows.map((x) => x.id), rest: restCoins, balance: bal };
     });
     await announce(user, row, sysId);
-    return { request: view(row), removed };
+    return { request: view(row), removed, rest, ...(balance === null ? {} : { balance }) };
   }
 
   async function starsInvoice(user, raw) {

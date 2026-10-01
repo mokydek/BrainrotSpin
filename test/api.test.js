@@ -135,6 +135,40 @@ test('opening a case needs coins, charges the price and records the drop', async
   assert.equal(free.body.error, 'use_free_endpoint');
 });
 
+test('opening a case 2 or 3 times at once charges every opening', async () => {
+  const u = users.dave;
+  await app.post('/api/bootstrap', { user: u });
+  const noob = caseBySlug('noob');
+  await app.setBalance(u.id, 25);
+  const tooMany = await app.post(`/api/case/${noob.id}/open`, { user: u, body: { count: 3 } });
+  assert.equal(tooMany.body.error, 'not_enough', '3 × 10 > 25');
+  for (const count of [0, 4, 1.5, 'x']) {
+    assert.equal((await app.post(`/api/case/${noob.id}/open`, { user: u, body: { count } })).body.error, 'bad_request', String(count));
+  }
+  forceDrop('noob', 'Tung Tung Tung Sahur');
+  forceDrop('noob', 'Bombardiro Crocodilo');
+  const r = await app.post(`/api/case/${noob.id}/open`, { user: u, body: { count: 2 } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.balance, 5);
+  assert.deepEqual(r.body.drops.map((d) => d.item.name), ['Tung Tung Tung Sahur', 'Bombardiro Crocodilo']);
+  assert.equal(r.body.item.name, 'Tung Tung Tung Sahur', 'first drop kept for older clients');
+  const inv = (await app.get('/api/inventory', { user: u })).body.inventory;
+  assert.deepEqual(inv.map((i) => i.invId).sort(), r.body.drops.map((d) => d.invId).sort());
+  const st = (await app.get('/api/me', { user: u })).body.stats;
+  assert.equal(st.casesOpened, 2);
+  assert.equal(st.totalSpent, 20);
+  assert.equal(st.totalWon, 6 + 75);
+  assert.equal(st.bestDrop.name, 'Bombardiro Crocodilo');
+  const feed = (await app.get('/api/feed')).body.feed.slice(0, 2).map((d) => d.item.name);
+  assert.deepEqual(feed.sort(), ['Bombardiro Crocodilo', 'Tung Tung Tung Sahur']);
+  // the default is still one opening
+  await app.setBalance(u.id, 30);
+  const one = await app.post(`/api/case/${noob.id}/open`, { user: u });
+  assert.equal(one.body.drops.length, 1);
+  assert.equal(one.body.balance, 20);
+  await app.setBalance(u.id, 0); // later tests count on an empty balance
+});
+
 test('selling items adds their value to the balance', async () => {
   const inv = (await app.get('/api/inventory', { user: users.alice })).body.inventory;
   const r = await app.post('/api/sell', { user: users.alice, body: { ids: [inv[0].invId] } });
@@ -382,6 +416,51 @@ test('admin: overview, cases and odds editing', async () => {
 
   // Restore the noob case to the original odds
   await app.put(`/api/admin/cases/${noob.id}`, { user: admin, body: noob });
+});
+
+test('admin: case categories — create, fill, rename, move a case, delete', async () => {
+  const A = { user: users.alice };
+  const ids = (slugs) => slugs.map((sl) => caseBySlug(sl).id);
+  assert.equal((await app.post('/api/admin/categories', { user: users.bob, body: { name: 'X' } })).status, 403);
+  assert.equal((await app.post('/api/admin/categories', { ...A, body: { name: ' ' } })).body.error, 'bad_field');
+  assert.equal((await app.post('/api/admin/categories', { ...A, body: { name: 'X', caseIds: [999999] } })).body.error, 'bad_field');
+
+  const cheap = await app.post('/api/admin/categories', { ...A, body: { name: 'Дешёвые', sort: 2, caseIds: ids(['noob', 'pro']) } });
+  assert.equal(cheap.status, 200, JSON.stringify(cheap.body));
+  const top = await app.post('/api/admin/categories', { ...A, body: { name: 'Топ', sort: 1, caseIds: ids(['griffin', 'dragon']) } });
+  const boot = (await app.post('/api/bootstrap', { user: users.bob })).body;
+  assert.deepEqual(boot.categories.map((k) => k.name), ['Топ', 'Дешёвые'], 'ordered by sort');
+  const cat = (sl) => boot.cases.find((c) => c.slug === sl).categoryId;
+  assert.equal(cat('noob'), cheap.body.category.id);
+  assert.equal(cat('griffin'), top.body.category.id);
+  assert.equal(cat('fish'), null);
+
+  // rename and set the exact list of cases (pro leaves, fish joins)
+  const upd = await app.put(`/api/admin/categories/${cheap.body.category.id}`, { ...A, body: { name: 'Недорогие', sort: 2, caseIds: ids(['noob', 'fish']) } });
+  assert.equal(upd.body.category.name, 'Недорогие');
+  const cases = (await app.get('/api/catalog', { user: users.bob })).body.cases;
+  assert.equal(cases.find((c) => c.slug === 'pro').categoryId, null);
+  assert.equal(cases.find((c) => c.slug === 'fish').categoryId, cheap.body.category.id);
+
+  // a case can also be moved from its editor
+  const pro = (await app.get('/api/admin/cases', A)).body.cases.find((c) => c.slug === 'pro');
+  const body = { ...pro, items: pro.items.map((e) => ({ itemId: e.itemId, chance: e.chance })), category_id: top.body.category.id };
+  const saved = await app.put(`/api/admin/cases/${pro.id}`, { ...A, body });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.equal(saved.body.case.category_id, top.body.category.id);
+  assert.equal((await app.put(`/api/admin/cases/${pro.id}`, { ...A, body: { ...body, category_id: 999999 } })).body.error, 'bad_field');
+  // saving without the field keeps the category
+  const { category_id: _omit, ...noCat } = body;
+  assert.equal((await app.put(`/api/admin/cases/${pro.id}`, { ...A, body: noCat })).body.case.category_id, top.body.category.id);
+
+  // deleting a category keeps its cases, without a category
+  assert.equal((await app.del(`/api/admin/categories/${top.body.category.id}`, A)).status, 200);
+  const after = (await app.post('/api/bootstrap', { user: users.bob })).body;
+  assert.deepEqual(after.categories.map((k) => k.name), ['Недорогие']);
+  assert.equal(after.cases.find((c) => c.slug === 'griffin').categoryId, null);
+  assert.equal(after.cases.find((c) => c.slug === 'pro').categoryId, null);
+  assert.equal((await app.del(`/api/admin/categories/${top.body.category.id}`, A)).status, 404);
+  await app.del(`/api/admin/categories/${cheap.body.category.id}`, A);
 });
 
 test('admin: case picture upload, public URL, removal', async () => {

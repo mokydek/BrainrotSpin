@@ -50,8 +50,10 @@ export const TEXTS = {
     btnOpenRequest: '📂 Открыть заявку',
     depositCreated: (id, nick, details) =>
       `📥 Заявка на пополнение #${id} принята.\n\nНик в Roblox: ${nick}\nЧто пополняешь: ${details}\n\nАдминистратор свяжется с тобой в этом чате.`,
-    withdrawCreated: (id, nick, items, total) =>
-      `📤 Заявка на вывод #${id} принята.\n\nНик в Roblox: ${nick}\nБрейнроты: ${items}\nНа сумму: ${fmt(total, 'ru')} 🪙\n\nАдминистратор свяжется с тобой в этом чате.`,
+    withdrawCreated: (id, nick, items, total, rest) =>
+      `📤 Заявка на вывод #${id} принята.\n\nНик в Roblox: ${nick}\nБрейнроты: ${items}\nНа сумму: ${fmt(total, 'ru')} 🪙` +
+      (rest ? `\nОстаток на баланс: +${fmt(rest, 'ru')} 🪙` : '') +
+      `\n\nАдминистратор свяжется с тобой в этом чате.`,
     adminMsg: (id, text) => `💬 Администратор по заявке #${id}:\n\n${text}`,
     replyAsk: (id) => `✍️ Напиши сообщение по заявке #${id}:`,
     replySent: '✅ Сообщение отправлено администратору.',
@@ -108,8 +110,10 @@ export const TEXTS = {
     btnOpenRequest: '📂 Відкрити заявку',
     depositCreated: (id, nick, details) =>
       `📥 Заявку на поповнення #${id} прийнято.\n\nНік у Roblox: ${nick}\nЩо поповнюєш: ${details}\n\nАдміністратор зв'яжеться з тобою в цьому чаті.`,
-    withdrawCreated: (id, nick, items, total) =>
-      `📤 Заявку на виведення #${id} прийнято.\n\nНік у Roblox: ${nick}\nБрейнроти: ${items}\nНа суму: ${fmt(total, 'uk')} 🪙\n\nАдміністратор зв'яжеться з тобою в цьому чаті.`,
+    withdrawCreated: (id, nick, items, total, rest) =>
+      `📤 Заявку на виведення #${id} прийнято.\n\nНік у Roblox: ${nick}\nБрейнроти: ${items}\nНа суму: ${fmt(total, 'uk')} 🪙` +
+      (rest ? `\nЗалишок на баланс: +${fmt(rest, 'uk')} 🪙` : '') +
+      `\n\nАдміністратор зв'яжеться з тобою в цьому чаті.`,
     adminMsg: (id, text) => `💬 Адміністратор щодо заявки #${id}:\n\n${text}`,
     replyAsk: (id) => `✍️ Напиши повідомлення щодо заявки #${id}:`,
     replySent: '✅ Повідомлення надіслано адміністратору.',
@@ -166,8 +170,10 @@ export const TEXTS = {
     btnOpenRequest: '📂 Open request',
     depositCreated: (id, nick, details) =>
       `📥 Deposit request #${id} received.\n\nRoblox nickname: ${nick}\nWhat you deposit: ${details}\n\nAn admin will contact you in this chat.`,
-    withdrawCreated: (id, nick, items, total) =>
-      `📤 Withdrawal request #${id} received.\n\nRoblox nickname: ${nick}\nBrainrots: ${items}\nTotal: ${fmt(total, 'en')} 🪙\n\nAn admin will contact you in this chat.`,
+    withdrawCreated: (id, nick, items, total, rest) =>
+      `📤 Withdrawal request #${id} received.\n\nRoblox nickname: ${nick}\nBrainrots: ${items}\nTotal: ${fmt(total, 'en')} 🪙` +
+      (rest ? `\nRemainder to balance: +${fmt(rest, 'en')} 🪙` : '') +
+      `\n\nAn admin will contact you in this chat.`,
     adminMsg: (id, text) => `💬 Admin about request #${id}:\n\n${text}`,
     replyAsk: (id) => `✍️ Write your message about request #${id}:`,
     replySent: '✅ Message sent to the admin.',

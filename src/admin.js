@@ -82,6 +82,7 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
       color: c.color,
       sort: c.sort,
       enabled: c.enabled,
+      category_id: c.category_id,
       image: game.caseImage(c),
       items: c.items
         .map((e) => ({ itemId: e.item_id, chance: e.chance }))
@@ -92,7 +93,20 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
     };
   }
 
-  r.get('/cases', wrap(async () => ({ cases: game.catalog.order.map((id) => adminCase(game.catalog.cases.get(id))) })));
+  r.get(
+    '/cases',
+    wrap(async () => ({
+      cases: game.catalog.order.map((id) => adminCase(game.catalog.cases.get(id))),
+      categories: game.listCategories(),
+    })),
+  );
+
+  function categoryId(v) {
+    if (v === undefined || v === null || v === '') return null;
+    const id = int(Number(v), 1, 2_147_483_647, 'category_id');
+    if (!game.catalog.categories.some((c) => c.id === id)) throw new GameError('bad_field', 400, { field: 'category_id' });
+    return id;
+  }
 
   function parseCaseBody(b, existing) {
     const out = {
@@ -103,6 +117,7 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
       color: color(b.color),
       sort: int(b.sort ?? 0, -1000, 1000, 'sort'),
       enabled: bool(b.enabled, 'enabled'),
+      category_id: b.category_id === undefined && existing ? existing.category_id : categoryId(b.category_id),
     };
     const isFree = existing ? existing.is_free : false;
     out.price = isFree ? 0 : int(b.price, 1, 10_000_000, 'price');
@@ -134,8 +149,8 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
       const c = parseCaseBody(req.body || {}, existing);
       await db.tx(async (cl) => {
         await cl.query(
-          `UPDATE bs_cases SET name_ru=$2, name_uk=$3, name_en=$4, emoji=$5, color=$6, sort=$7, enabled=$8, price=$9 WHERE id=$1`,
-          [id, c.name_ru, c.name_uk, c.name_en, c.emoji, c.color, c.sort, c.enabled, c.price],
+          `UPDATE bs_cases SET name_ru=$2, name_uk=$3, name_en=$4, emoji=$5, color=$6, sort=$7, enabled=$8, price=$9, category_id=$10 WHERE id=$1`,
+          [id, c.name_ru, c.name_uk, c.name_en, c.emoji, c.color, c.sort, c.enabled, c.price, c.category_id],
         );
         await saveItems(cl, id, c.items);
       });
@@ -152,9 +167,9 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
       const slug = `${base}-${crypto.randomBytes(3).toString('hex')}`;
       const row = await db.tx(async (cl) => {
         const ins = await cl.query(
-          `INSERT INTO bs_cases (slug, name_ru, name_uk, name_en, price, is_free, emoji, color, sort, enabled)
-           VALUES ($1,$2,$3,$4,$5,FALSE,$6,$7,$8,$9) RETURNING id`,
-          [slug, c.name_ru, c.name_uk, c.name_en, c.price, c.emoji, c.color, c.sort, c.enabled],
+          `INSERT INTO bs_cases (slug, name_ru, name_uk, name_en, price, is_free, emoji, color, sort, enabled, category_id)
+           VALUES ($1,$2,$3,$4,$5,FALSE,$6,$7,$8,$9,$10) RETURNING id`,
+          [slug, c.name_ru, c.name_uk, c.name_en, c.price, c.emoji, c.color, c.sort, c.enabled, c.category_id],
         );
         await saveItems(cl, ins.rows[0].id, c.items);
         return ins.rows[0];
@@ -199,6 +214,66 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
     }),
   );
 
+  // ------------------------------------------------------------ case categories
+  function parseCategory(b) {
+    const out = { name: str(b.name, 1, 40, 'name'), sort: int(b.sort ?? 0, -1000, 1000, 'sort') };
+    if (b.caseIds !== undefined) {
+      if (!Array.isArray(b.caseIds) || b.caseIds.length > 500) throw new GameError('bad_field', 400, { field: 'caseIds' });
+      out.caseIds = [...new Set(b.caseIds.map((x) => int(Number(x), 1, 2_147_483_647, 'caseIds')))];
+      if (out.caseIds.some((id) => !game.catalog.cases.has(id))) throw new GameError('bad_field', 400, { field: 'caseIds' });
+    }
+    return out;
+  }
+
+  /** Puts exactly `caseIds` into the category (others leave it). */
+  async function setCategoryCases(cl, id, caseIds) {
+    if (!caseIds) return;
+    await cl.query('UPDATE bs_cases SET category_id = NULL WHERE category_id = $1 AND NOT (id = ANY($2::int[]))', [id, caseIds]);
+    await cl.query('UPDATE bs_cases SET category_id = $1 WHERE id = ANY($2::int[])', [id, caseIds]);
+  }
+
+  r.get('/categories', wrap(async () => ({ categories: game.listCategories() })));
+
+  r.post(
+    '/categories',
+    wrap(async (req) => {
+      const c = parseCategory(req.body || {});
+      const row = await db.tx(async (cl) => {
+        const ins = (await cl.query('INSERT INTO bs_categories (name, sort) VALUES ($1, $2) RETURNING id', [c.name, c.sort])).rows[0];
+        await setCategoryCases(cl, ins.id, c.caseIds);
+        return ins;
+      });
+      await game.reloadCatalog();
+      return { category: game.listCategories().find((x) => x.id === row.id), categories: game.listCategories() };
+    }),
+  );
+
+  r.put(
+    '/categories/:id',
+    wrap(async (req) => {
+      const id = int(Number(req.params.id), 1, 2_147_483_647, 'id');
+      if (!game.catalog.categories.some((c) => c.id === id)) throw new GameError('not_found', 404);
+      const c = parseCategory(req.body || {});
+      await db.tx(async (cl) => {
+        await cl.query('UPDATE bs_categories SET name = $2, sort = $3 WHERE id = $1', [id, c.name, c.sort]);
+        await setCategoryCases(cl, id, c.caseIds);
+      });
+      await game.reloadCatalog();
+      return { category: game.listCategories().find((x) => x.id === id), categories: game.listCategories() };
+    }),
+  );
+
+  r.delete(
+    '/categories/:id',
+    wrap(async (req) => {
+      const id = int(Number(req.params.id), 1, 2_147_483_647, 'id');
+      const del = await db.query('DELETE FROM bs_categories WHERE id = $1', [id]);
+      if (!del.rowCount) throw new GameError('not_found', 404);
+      await game.reloadCatalog();
+      return { ok: true };
+    }),
+  );
+
   // ------------------------------------------------------------ items
   r.get(
     '/items',
@@ -211,6 +286,7 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
         image_url: i.image_url || null,
         hasUpload: i.has_image,
         enabled: i.enabled,
+        withdrawable: i.withdrawable,
         inCases: used.get(i.id) || 0,
       }));
       return { items, rarities: RARITIES };
@@ -227,6 +303,7 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
       rarity,
       image_url: imageUrl(b.image_url),
       enabled: b.enabled === undefined ? true : bool(b.enabled, 'enabled'),
+      withdrawable: b.withdrawable === undefined ? null : bool(b.withdrawable, 'withdrawable'),
     };
   }
 
@@ -235,8 +312,8 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
     wrap(async (req) => {
       const it = parseItemBody(req.body || {});
       const row = await db.one(
-        'INSERT INTO bs_items (name, value, emoji, rarity, image_url, enabled) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
-        [it.name, it.value, it.emoji, it.rarity, it.image_url, it.enabled],
+        'INSERT INTO bs_items (name, value, emoji, rarity, image_url, enabled, withdrawable) VALUES ($1,$2,$3,$4,$5,$6,coalesce($7,FALSE)) RETURNING id',
+        [it.name, it.value, it.emoji, it.rarity, it.image_url, it.enabled, it.withdrawable],
       );
       await game.reloadCatalog();
       return { item: game.publicItem(game.catalog.items.get(row.id)) };
@@ -249,7 +326,7 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
       const id = int(Number(req.params.id), 1, 2_147_483_647, 'id');
       if (!game.catalog.items.has(id)) throw new GameError('not_found', 404);
       const it = parseItemBody(req.body || {});
-      await db.query('UPDATE bs_items SET name=$2, value=$3, emoji=$4, rarity=$5, image_url=$6, enabled=$7 WHERE id=$1', [
+      await db.query('UPDATE bs_items SET name=$2, value=$3, emoji=$4, rarity=$5, image_url=$6, enabled=$7, withdrawable=coalesce($8, withdrawable) WHERE id=$1', [
         id,
         it.name,
         it.value,
@@ -257,6 +334,7 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
         it.rarity,
         it.image_url,
         it.enabled,
+        it.withdrawable,
       ]);
       await game.reloadCatalog();
       return { item: game.publicItem(game.catalog.items.get(id)) };
