@@ -55,10 +55,18 @@ export async function startMockTelegram() {
       case 'getMe':
         return me;
       case 'getWebhookInfo':
-        return { url: state.webhookUrl, has_custom_certificate: false, pending_update_count: 0 };
+        return {
+          url: state.webhookUrl,
+          has_custom_certificate: false,
+          pending_update_count: 0,
+          ...(state.allowedUpdates ? { allowed_updates: state.allowedUpdates } : {}),
+        };
       case 'setWebhook':
         state.webhookUrl = p.url;
+        state.allowedUpdates = p.allowed_updates || null;
         return true;
+      case 'createInvoiceLink':
+        return `https://t.me/$inv_${state.msgId++}`;
       case 'deleteWebhook':
         state.webhookUrl = '';
         return true;

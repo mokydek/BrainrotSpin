@@ -133,6 +133,46 @@ CREATE TABLE IF NOT EXISTS bs_balance_log (
 );
 CREATE INDEX IF NOT EXISTS bs_balance_log_user_idx ON bs_balance_log (user_id);
 
+-- last Roblox nickname the player entered (pre-fills the deposit / withdrawal forms)
+ALTER TABLE bs_users ADD COLUMN IF NOT EXISTS roblox_nick TEXT;
+
+-- Deposits (brainrots by request or Telegram Stars) and withdrawals of brainrots.
+CREATE TABLE IF NOT EXISTS bs_requests (
+  id          BIGSERIAL PRIMARY KEY,
+  user_id     BIGINT NOT NULL REFERENCES bs_users(id) ON DELETE CASCADE,
+  kind        TEXT NOT NULL CHECK (kind IN ('deposit', 'withdraw')),
+  method      TEXT NOT NULL DEFAULT 'brainrot' CHECK (method IN ('brainrot', 'stars')),
+  status      TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'active', 'done', 'rejected')),
+  nick        TEXT,
+  details     TEXT,
+  items       JSONB NOT NULL DEFAULT '[]', -- withdraw: held items; deposit: items given by admins
+  total       BIGINT NOT NULL DEFAULT 0,   -- withdraw: value of the held items
+  coins       BIGINT NOT NULL DEFAULT 0,   -- deposit: coins credited
+  stars       INTEGER,
+  charge_id   TEXT UNIQUE,                 -- Telegram Stars payment id (idempotency)
+  invoice     TEXT,                        -- Stars: id of our invoice, the app polls it
+  admin_id    BIGINT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS bs_requests_kind_idx ON bs_requests (kind, status, id DESC);
+CREATE INDEX IF NOT EXISTS bs_requests_user_idx ON bs_requests (user_id);
+ALTER TABLE bs_requests ADD COLUMN IF NOT EXISTS invoice TEXT;
+CREATE INDEX IF NOT EXISTS bs_requests_invoice_idx ON bs_requests (invoice) WHERE invoice IS NOT NULL;
+
+-- Conversation between admins and the player about a request (delivered through the bot).
+CREATE TABLE IF NOT EXISTS bs_request_msgs (
+  id          BIGSERIAL PRIMARY KEY,
+  request_id  BIGINT NOT NULL REFERENCES bs_requests(id) ON DELETE CASCADE,
+  author      TEXT NOT NULL CHECK (author IN ('user', 'admin', 'system')),
+  author_id   BIGINT,
+  text        TEXT NOT NULL,
+  tg_msg_id   BIGINT, -- bot message in the player's chat, so a Telegram reply finds the request
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS bs_request_msgs_req_idx ON bs_request_msgs (request_id, id);
+CREATE INDEX IF NOT EXISTS bs_request_msgs_tg_idx ON bs_request_msgs (tg_msg_id) WHERE tg_msg_id IS NOT NULL;
+
 -- Row level security with no policies: the app connects as the table owner
 -- (unaffected), while public APIs such as Supabase's Data API get no access.
 ALTER TABLE bs_users        ENABLE ROW LEVEL SECURITY;
@@ -146,3 +186,5 @@ ALTER TABLE bs_promo_codes  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bs_promo_uses   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bs_settings     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bs_balance_log  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bs_requests     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bs_request_msgs ENABLE ROW LEVEL SECURITY;

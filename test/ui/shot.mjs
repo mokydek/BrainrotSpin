@@ -77,15 +77,39 @@ if (want('pops')) {
   await page.waitForTimeout(300);
   await snap(page, '10-lang-pop');
   await page.mouse.click(10, 400);
-  await page.click('[data-act="promo"]');
+  await page.click('[data-act="topup"]');
+  await page.waitForTimeout(400);
+  await snap(page, '11-topup');
+  await page.click('[data-act="tu-stars"]');
+  await page.waitForTimeout(300);
+  await snap(page, '11-topup-stars');
+  await page.click('[data-act="tu-menu"]');
+  await page.click('[data-act="tu-brainrots"]');
+  await page.waitForTimeout(300);
+  await snap(page, '11-topup-brainrots');
+  await page.click('[data-act="tu-menu"]');
+  await page.click('.topup [data-act="promo"]');
   await page.waitForTimeout(400);
   await snap(page, '11-promo');
   await page.click('.modal-backdrop');
   await page.waitForTimeout(300);
 }
 
+if (want('withdraw')) {
+  await page.evaluate(() => (location.hash = '#/profile'));
+  await page.waitForSelector('.p-card');
+  await page.click('[data-act="withdraw"]');
+  await page.waitForTimeout(400);
+  await page.click('[data-wd] >> nth=0');
+  await page.click('[data-wd] >> nth=2');
+  await page.waitForTimeout(200);
+  await snap(page, '15-withdraw');
+  await page.click('.modal-backdrop', { position: { x: 10, y: 10 } });
+  await page.waitForTimeout(300);
+}
+
 if (want('admin')) {
-  for (const sub of ['overview', 'cases', 'items', 'users', 'promos', 'settings', 'broadcast']) {
+  for (const sub of ['overview', 'deposits', 'withdrawals', 'cases', 'items', 'users', 'promos', 'settings', 'broadcast']) {
     await page.evaluate((s) => (location.hash = '#/admin/' + s), sub);
     await page.waitForTimeout(700);
     await snap(page, `12-admin-${sub}`);
@@ -98,6 +122,31 @@ if (want('admin')) {
   await page.evaluate((id) => (location.hash = '#/admin/users/' + id), 6001);
   await page.waitForTimeout(700);
   await snap(page, '14-admin-user');
+  const reqs = await demo.ctx.db.many("SELECT id, kind, method FROM bs_requests ORDER BY id");
+  const dep = reqs.find((r) => r.kind === 'deposit' && r.method === 'brainrot');
+  const wd = reqs.find((r) => r.kind === 'withdraw');
+  const st = reqs.find((r) => r.method === 'stars');
+  await page.evaluate((id) => (location.hash = '#/admin/deposits/' + id), dep.id);
+  await page.waitForSelector('#reqChat');
+  await page.waitForTimeout(500);
+  await snap(page, '16-admin-deposit');
+  await snap(page, '16-admin-deposit-full', true);
+  await page.evaluate((id) => (location.hash = '#/admin/withdrawals/' + id), wd.id);
+  await page.waitForSelector('#reqChat');
+  await page.waitForTimeout(500);
+  await snap(page, '17-admin-withdraw-full', true);
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.waitForTimeout(300);
+  await snap(page, '17-admin-withdraw-bottom');
+  await page.evaluate(() => (location.hash = '#/admin/deposits'));
+  await page.waitForSelector('#reqList');
+  await page.click('[data-scope="all"]');
+  await page.waitForTimeout(500);
+  await snap(page, '18-admin-deposits-all');
+  await page.evaluate((id) => (location.hash = '#/admin/deposits/' + id), st.id);
+  await page.waitForSelector('#reqChat', { state: 'attached' });
+  await page.waitForTimeout(400);
+  await snap(page, '19-admin-stars');
 }
 
 console.log('errors:', errors.length ? errors : 'none');

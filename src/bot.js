@@ -3,6 +3,9 @@ import { Bot, InputFile, webhookCallback } from 'grammy';
 import { signWebToken } from './auth.js';
 import { GameError } from './game.js';
 import { LANGS, T } from './texts.js';
+import { MSG_MAX } from './requests.js';
+
+export const ALLOWED_UPDATES = ['message', 'callback_query', 'my_chat_member', 'pre_checkout_query'];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -12,7 +15,7 @@ function safeEqual(a, b) {
   return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
 }
 
-export function createBot({ config, db, settings, game, users, live, paths }) {
+export function createBot({ config, db, settings, game, users, live, paths, requests }) {
   const bot = new Bot(config.botToken, config.telegramApiRoot ? { client: { apiRoot: config.telegramApiRoot } } : {});
   const httpsWeb = /^https:\/\//.test(config.webUrl);
   const adminAttempts = new Map();
@@ -97,14 +100,65 @@ export function createBot({ config, db, settings, game, users, live, paths }) {
     await ctx.reply(T(u.lang).promoAsk, { reply_markup: { force_reply: true, input_field_placeholder: 'PROMO' } });
   });
 
+  // "Reply" / "Write" under a request message: the next text goes to the admins.
+  bot.callbackQuery(/^rq:(\d{1,15})$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    if (ctx.chat?.type !== 'private') return;
+    const u = await users.ensureUser(ctx.from.id);
+    if (!u || u.is_banned) return;
+    const id = Number(ctx.match[1]);
+    const r = await requests.ownRequest(u.id, id);
+    if (!r) return;
+    const t = T(u.lang);
+    if (r.status === 'done' || r.status === 'rejected') return ctx.reply(t.reqClosed(id));
+    await db.query('UPDATE bs_users SET awaiting = $2 WHERE id = $1', [u.id, `rq:${id}`]);
+    await ctx.reply(t.replyAsk(id), { reply_markup: { force_reply: true } });
+  });
+
+  // ------------------------------------------------------------ Telegram Stars
+  bot.on('pre_checkout_query', async (ctx) => {
+    let ok = false;
+    try {
+      ok = await requests.preCheckout(ctx.preCheckoutQuery);
+    } catch (e) {
+      console.error('[stars] pre-checkout check failed:', e.message);
+    }
+    const u = ok ? null : await users.ensureUser(ctx.from.id).catch(() => null);
+    await ctx.answerPreCheckoutQuery(ok, ok ? undefined : { error_message: T(u ? u.lang : 'ru').payCheckFailed });
+  });
+
+  bot.on('message:successful_payment', async (ctx) => {
+    const r = await requests.creditStars(ctx.from.id, ctx.message.successful_payment);
+    if (r && !r.duplicate) await ctx.reply(T(r.lang).starsOk(r.coins, r.balance));
+  });
+
   bot.on('message:text', async (ctx) => {
     if (ctx.chat.type !== 'private') return;
     const text = ctx.message.text.trim();
     if (text.startsWith('/')) return;
     const u = await users.ensureUser(ctx.from.id);
-    if (!u || u.awaiting !== 'promo' || u.is_banned) return;
-    await db.query('UPDATE bs_users SET awaiting = NULL WHERE id = $1', [u.id]);
+    if (!u || u.is_banned) return;
     const t = T(u.lang);
+
+    // a message for the admins about a request: after "Reply", or a Telegram reply to a request message
+    let reqId = u.awaiting && u.awaiting.startsWith('rq:') ? Number(u.awaiting.slice(3)) : null;
+    if (!reqId && ctx.message.reply_to_message && ctx.message.reply_to_message.from?.id === ctx.me.id) {
+      reqId = await requests.findByTgMessage(u.id, ctx.message.reply_to_message.message_id);
+    }
+    if (reqId) {
+      if (u.awaiting) await db.query('UPDATE bs_users SET awaiting = NULL WHERE id = $1', [u.id]);
+      try {
+        await requests.userReply(u, reqId, text.slice(0, MSG_MAX));
+        await ctx.reply(t.replySent);
+      } catch (e) {
+        if (!(e instanceof GameError)) console.error('[bot] request reply error:', e);
+        else if (e.code === 'request_closed') await ctx.reply(t.reqClosed(reqId));
+      }
+      return;
+    }
+
+    if (u.awaiting !== 'promo') return;
+    await db.query('UPDATE bs_users SET awaiting = NULL WHERE id = $1', [u.id]);
     try {
       const r = await game.redeemPromo(u.id, text);
       await ctx.reply(t.promoOk(r.amount, r.balance));
@@ -159,10 +213,11 @@ export function createBot({ config, db, settings, game, users, live, paths }) {
   async function setupWebhook() {
     const url = `${config.apiUrl}${config.webhookPath}`;
     const info = await bot.api.getWebhookInfo();
-    if (info.url !== url) {
+    const have = [...(info.allowed_updates || [])].sort().join(',');
+    if (info.url !== url || have !== [...ALLOWED_UPDATES].sort().join(',')) {
       await bot.api.setWebhook(url, {
         secret_token: config.webhookSecret,
-        allowed_updates: ['message', 'callback_query', 'my_chat_member'],
+        allowed_updates: ALLOWED_UPDATES,
       });
       console.log('[bot] webhook set to', url);
     }

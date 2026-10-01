@@ -19,7 +19,7 @@ test('startup: webhook with secret, name/description/commands in 3 languages, me
   const hook = app.tg.calls('setWebhook')[0].payload;
   assert.equal(hook.url, 'https://api.brainrotspin.test/tg/webhook');
   assert.equal(hook.secret_token, app.ctx.config.webhookSecret);
-  assert.deepEqual(hook.allowed_updates, ['message', 'callback_query', 'my_chat_member']);
+  assert.deepEqual(hook.allowed_updates, ['message', 'callback_query', 'my_chat_member', 'pre_checkout_query']);
 
   assert.equal(app.tg.calls('setMyName').length, 0, 'name already BrainrotSpin in getMe');
   const desc = app.tg.calls('setMyDescription').map((c) => [c.payload.language_code || '', c.payload.description]);
@@ -60,6 +60,29 @@ test('startup profile setup is skipped when nothing changed', async () => {
   assert.ok(!newCalls.includes('setMyDescription'), newCalls.join(','));
   assert.ok(!newCalls.includes('setMyProfilePhoto'));
   assert.ok(!newCalls.includes('setWebhook'), 'webhook already points to the right url');
+});
+
+test('startup: an old webhook without payment updates is re-registered', async () => {
+  app.tg.state.allowedUpdates = ['message', 'callback_query', 'my_chat_member'];
+  app.tg.reset();
+  const again = await createServer(
+    {
+      NODE_ENV: 'test',
+      DATABASE_URL: app.ctx.config.databaseUrl,
+      BOT_TOKEN: app.ctx.config.botToken,
+      TELEGRAM_API_ROOT: app.tg.url,
+      API_URL: 'https://api.brainrotspin.test',
+      WEB_URL: 'https://app.brainrotspin.test',
+      BOT_MODE: 'webhook',
+    },
+    {},
+  );
+  await again.start(0);
+  await wait(300);
+  await again.stop();
+  const hooks = app.tg.calls('setWebhook');
+  assert.equal(hooks.length, 1);
+  assert.deepEqual(hooks[0].payload.allowed_updates, ['message', 'callback_query', 'my_chat_member', 'pre_checkout_query']);
 });
 
 test('webhook rejects requests without the secret', async () => {

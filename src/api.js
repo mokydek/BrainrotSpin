@@ -90,12 +90,13 @@ export function meView(u) {
     theme: u.theme,
     balance: u.balance,
     isAdmin: u.is_admin,
+    nick: u.roblox_nick || null,
     createdAt: u.created_at,
   };
 }
 
 export function createApi(deps) {
-  const { config, db, settings, game, live, users, tg } = deps;
+  const { config, db, settings, game, live, users, tg, requests } = deps;
   const r = express.Router();
   const auth = createAuth(deps);
   const limitActions = rateLimiter(12, 3000);
@@ -141,6 +142,7 @@ export function createApi(deps) {
         stats: await game.stats(u.id),
         inventory: await game.inventory(u.id),
         bot: tg.botUsername || null,
+        topup: { starsRate: settings.get('stars_rate') },
         links: {
           news: settings.get('news_url') || settings.get('channel_url') || null,
           support: settings.get('support_url') || null,
@@ -169,7 +171,12 @@ export function createApi(deps) {
 
   r.get('/me', auth, limitLight, wrap(async (req) => ({ me: meView(req.user), stats: await game.stats(req.user.id), free: game.freeState(req.user) })));
   r.get('/inventory', auth, limitLight, wrap(async (req) => ({ inventory: await game.inventory(req.user.id) })));
-  r.get('/catalog', auth, limitLight, wrap(async () => ({ cases: game.listCases(), items: game.listItems(), upgrade: game.upgradeSettings() })));
+  r.get(
+    '/catalog',
+    auth,
+    limitLight,
+    wrap(async () => ({ cases: game.listCases(), items: game.listItems(), upgrade: game.upgradeSettings(), topup: { starsRate: settings.get('stars_rate') } })),
+  );
 
   r.post('/case/:id/open', auth, limitActions, wrap(async (req) => game.openCase(req.user, req.params.id)));
 
@@ -220,6 +227,12 @@ export function createApi(deps) {
   r.post('/upgrade', auth, limitActions, wrap(async (req) => game.upgrade(req.user, req.body || {})));
 
   r.post('/promo', auth, limitActions, wrap(async (req) => game.redeemPromo(req.user.id, (req.body || {}).code)));
+
+  // ------------------------------------------------------------ deposits & withdrawals
+  r.post('/topup/stars', auth, limitActions, wrap(async (req) => requests.starsInvoice(req.user, (req.body || {}).stars)));
+  r.get('/topup/stars/:invoice', auth, limitLight, wrap(async (req) => requests.invoiceStatus(req.user, req.params.invoice)));
+  r.post('/requests/deposit', auth, limitActions, wrap(async (req) => requests.createDeposit(req.user, req.body || {})));
+  r.post('/requests/withdraw', auth, limitActions, wrap(async (req) => requests.createWithdraw(req.user, req.body || {})));
 
   return { router: r, auth };
 }

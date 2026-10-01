@@ -29,6 +29,25 @@ export function createTg(getBot, config) {
       return { title: chat.title || chat.username || String(chat.id), botIsAdmin: me.status === 'administrator' || me.status === 'creator' };
     },
 
+    /** Sends a message; never throws. Returns { ok, message } or { ok: false, code }. */
+    async send(chatId, text, extra = {}) {
+      const bot = getBot();
+      if (!bot) return { ok: false, code: 0 };
+      try {
+        const message = await bot.api.sendMessage(chatId, text, { link_preview_options: { is_disabled: true }, ...extra });
+        return { ok: true, message };
+      } catch (e) {
+        return { ok: false, code: e.error_code || 0, description: e.description || e.message };
+      }
+    },
+
+    /** Invoice link paid in Telegram Stars (currency XTR, no provider token). */
+    async starsInvoice({ title, description, payload, label, stars }) {
+      const bot = getBot();
+      if (!bot) throw new Error('bot disabled');
+      return bot.api.createInvoiceLink(title, description, payload, '', 'XTR', [{ label, amount: stars }]);
+    },
+
     shareFallbackUrl(lang) {
       const link = `https://t.me/${this.botUsername}`;
       return `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(T(lang).shareCaption)}`;
