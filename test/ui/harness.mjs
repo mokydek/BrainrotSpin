@@ -57,6 +57,31 @@ export async function startDemo({ dbName = 'bs_t_ui', env = {} } = {}) {
   await ctx.db.query(
     "INSERT INTO bs_promo_codes (code, amount, max_uses) VALUES ('BRAINROT100', 100, 50), ('WELCOME', 25, 1000) ON CONFLICT DO NOTHING",
   );
+
+  // Deposits / withdrawals for the admin tabs
+  const [, kira, danya, , lesha] = OTHERS;
+  const dep = await app.post('/api/requests/deposit', { user: kira, body: { nick: 'KiraPlays', details: 'Tralalero Tralala, Brr Brr Patapim' } });
+  await app.post(`/api/admin/requests/${dep.body.request.id}/messages`, { user: ME, body: { text: 'Привет! Добавь BossRoblox в друзья и зайди на мой сервер' } });
+  await app.sendUpdate({
+    callback_query: { id: 'cb1', from: { is_bot: false, ...kira }, chat_instance: 'x', data: `rq:${dep.body.request.id}`, message: { message_id: 1, date: 0, chat: { id: kira.id, type: 'private' }, text: 'x' } },
+  });
+  await app.message(kira, 'Добавила, ник KiraPlays, жду 🙌');
+  await app.post('/api/requests/deposit', { user: lesha, body: { nick: 'LeshaRBX', details: 'La Vacca Saturno Saturnita' } });
+  const inv = (await app.get('/api/inventory', { user: danya })).body.inventory;
+  await app.post('/api/requests/withdraw', { user: danya, body: { nick: 'DanyaPro', ids: inv.slice(0, 3).map((i) => i.invId) } });
+  await app.post('/api/topup/stars', { user: OTHERS[5], body: { stars: 250 } });
+  await app.sendUpdate({
+    message: {
+      message_id: 77, date: 0, chat: { id: OTHERS[5].id, type: 'private' }, from: { is_bot: false, ...OTHERS[5] },
+      successful_payment: {
+        currency: 'XTR',
+        total_amount: 250,
+        invoice_payload: `bs:${OTHERS[5].id}:250:250:${Math.floor(Date.now() / 1000)}:demoinvoice1`,
+        telegram_payment_charge_id: 'demo-charge-1',
+        provider_payment_charge_id: '',
+      },
+    },
+  });
   return { app, ctx, bySlug, me: ME, others: OTHERS };
 }
 
@@ -77,6 +102,7 @@ export function telegramStub(user, { version = '8.0' } = {}) {
     shareMessage(id, cb) { __tgCalls.push(['shareMessage', id]); setTimeout(() => cb && cb(true), 60); },
     openTelegramLink(u) { __tgCalls.push(['openTelegramLink', u]); },
     openLink(u) { __tgCalls.push(['openLink', u]); },
+    openInvoice(u, cb) { __tgCalls.push(['openInvoice', u]); window.__invoiceCb = cb; },
   } };`;
 }
 
