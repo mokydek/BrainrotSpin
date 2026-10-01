@@ -140,9 +140,9 @@ if (want('admin')) {
   await snap(page, '17-admin-withdraw-bottom');
   await page.evaluate(() => (location.hash = '#/admin/deposits'));
   await page.waitForSelector('#reqList');
-  await page.click('[data-scope="all"]');
+  await page.click('[data-scope="done"]');
   await page.waitForTimeout(500);
-  await snap(page, '18-admin-deposits-all');
+  await snap(page, '18-admin-deposits-done');
   await page.evaluate((id) => (location.hash = '#/admin/deposits/' + id), st.id);
   await page.waitForSelector('#reqChat', { state: 'attached' });
   await page.waitForTimeout(400);
