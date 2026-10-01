@@ -135,14 +135,14 @@ test('opening a case needs coins, charges the price and records the drop', async
   assert.equal(free.body.error, 'use_free_endpoint');
 });
 
-test('opening a case 2 or 3 times at once charges every opening', async () => {
+test('opening a case 2, 3 or 5 times at once charges every opening', async () => {
   const u = users.dave;
   await app.post('/api/bootstrap', { user: u });
   const noob = caseBySlug('noob');
   await app.setBalance(u.id, 25);
   const tooMany = await app.post(`/api/case/${noob.id}/open`, { user: u, body: { count: 3 } });
   assert.equal(tooMany.body.error, 'not_enough', '3 × 10 > 25');
-  for (const count of [0, 4, 1.5, 'x']) {
+  for (const count of [0, 4, 6, 10, 1.5, 'x']) {
     assert.equal((await app.post(`/api/case/${noob.id}/open`, { user: u, body: { count } })).body.error, 'bad_request', String(count));
   }
   forceDrop('noob', 'Tung Tung Tung Sahur');
@@ -166,6 +166,18 @@ test('opening a case 2 or 3 times at once charges every opening', async () => {
   const one = await app.post(`/api/case/${noob.id}/open`, { user: u });
   assert.equal(one.body.drops.length, 1);
   assert.equal(one.body.balance, 20);
+  // x5: five drops, 5 × price, all in the inventory
+  await app.setBalance(u.id, 49);
+  assert.equal((await app.post(`/api/case/${noob.id}/open`, { user: u, body: { count: 5 } })).body.error, 'not_enough', '5 × 10 > 49');
+  await app.setBalance(u.id, 57);
+  const invBefore = (await app.get('/api/inventory', { user: u })).body.inventory.length;
+  const five = await app.post(`/api/case/${noob.id}/open`, { user: u, body: { count: 5 } });
+  assert.equal(five.status, 200, JSON.stringify(five.body));
+  assert.equal(five.body.drops.length, 5);
+  assert.equal(five.body.balance, 7);
+  assert.equal(new Set(five.body.drops.map((d) => d.invId)).size, 5);
+  assert.equal((await app.get('/api/inventory', { user: u })).body.inventory.length, invBefore + 5);
+  assert.equal((await app.get('/api/me', { user: u })).body.stats.casesOpened, 2 + 1 + 5);
   await app.setBalance(u.id, 0); // later tests count on an empty balance
 });
 

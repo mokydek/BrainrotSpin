@@ -537,8 +537,23 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
   );
 
   // ------------------------------------------------------------ settings
-  r.get('/settings', wrap(async () => ({ settings: settings.all() })));
-  r.put('/settings', wrap(async (req) => ({ settings: await settings.update(req.body || {}) })));
+  // the Stars rate is seen and changed by the main admin only; other admins don't get the field at all
+  const OWNER_SETTINGS = ['stars_rate'];
+  const visibleSettings = (user) => {
+    const s = settings.all();
+    if (!users.isOwnerId(user.id)) for (const k of OWNER_SETTINGS) delete s[k];
+    return s;
+  };
+  r.get('/settings', wrap(async (req) => ({ settings: visibleSettings(req.user) })));
+  r.put(
+    '/settings',
+    wrap(async (req) => {
+      const patch = { ...(req.body && typeof req.body === 'object' ? req.body : {}) };
+      if (!users.isOwnerId(req.user.id)) for (const k of OWNER_SETTINGS) delete patch[k];
+      await settings.update(patch);
+      return { settings: visibleSettings(req.user) };
+    }),
+  );
 
   r.post(
     '/check-channel',
@@ -570,7 +585,7 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
   r.get(
     '/requests',
     wrap(async (req) => ({
-      requests: await requests.list({ kind: String(req.query.kind || ''), scope: req.query.scope === 'all' ? 'all' : 'open' }),
+      requests: await requests.list({ kind: String(req.query.kind || ''), scope: String(req.query.scope || 'active') }),
     })),
   );
   r.get('/requests/counts', wrap(async () => ({ counts: await requests.counts() })));
