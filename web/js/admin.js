@@ -74,7 +74,7 @@ async function casesList(body) {
     h`<div class="adm-actions"><a class="btn small" href="#/admin/cases/new">+ ${C.t('a.newCase')}</a></div>
     <div class="list">${cases.map(
       (c) => h`<a class="row" href="#/admin/cases/${c.id}">
-        <span class="row-art">${C.chest(c.color, c.emoji, 44)}</span>
+        <span class="row-art">${C.caseArt(c, 44)}</span>
         <span class="row-main"><b>${c['name_' + lang] || c.name_ru}</b><small>${c.is_free ? 'FREE' : C.money(c.price, 12)} · ${C.t('a.rtp')}: ${c.rtp === null ? '—' : C.fmt(c.rtp) + '%'}</small></span>
         <span class="badge ${c.enabled ? 'ok' : 'off'}">${c.enabled ? C.t('a.on') : C.t('a.off')}</span>
       </a>`,
@@ -109,6 +109,12 @@ async function caseEditor(body, id) {
       ${rtp === null ? '' : h`<div class="sum-row"><span>${C.t('a.rtp')}</span><b>${C.fmt(Math.round(rtp * 100) / 100)}%</b></div>`}`;
   }
 
+  function caseImgRow() {
+    return h`<span class="img-lbl">${C.t('a.image')}</span>
+      <label class="btn small ghost file-btn">${C.t('a.upload')}<input type="file" accept="image/*" id="cImgFile" hidden></label>
+      ${data.image ? h`<button type="button" class="btn small ghost" id="cImgDel">${C.t('a.removeImg')}</button>` : ''}`;
+  }
+
   function lootRows() {
     loot.sort((a, b) => (items.get(b.itemId)?.value || 0) - (items.get(a.itemId)?.value || 0));
     return h`${loot.map((e, i) => {
@@ -125,7 +131,7 @@ async function caseEditor(body, id) {
   C.render(
     body,
     h`<form class="form" id="caseForm" autocomplete="off">
-      <div class="form-head"><a class="back" href="#/admin/cases">‹</a><span id="cPreview">${C.chest(data.color, data.emoji, 56)}</span><b>${data.id ? data['name_' + (document.documentElement.lang || 'ru')] : C.t('a.newCase')}</b></div>
+      <div class="form-head"><a class="back" href="#/admin/cases">‹</a><span id="cPreview">${C.caseArt(data, 56)}</span><b>${data.id ? data['name_' + (document.documentElement.lang || 'ru')] : C.t('a.newCase')}</b></div>
       <label>${C.t('a.nameRu')}<input class="input" name="name_ru" maxlength="60" value="${data.name_ru}" required></label>
       <label>${C.t('a.nameUk')}<input class="input" name="name_uk" maxlength="60" value="${data.name_uk}" required></label>
       <label>${C.t('a.nameEn')}<input class="input" name="name_en" maxlength="60" value="${data.name_en}" required></label>
@@ -135,6 +141,7 @@ async function caseEditor(body, id) {
         <label>${C.t('a.color')}<input class="input color" name="color" type="color" value="${data.color}"></label>
         <label>${C.t('a.sort')}<input class="input" name="sort" type="number" step="1" value="${data.sort}"></label>
       </div>
+      ${data.id ? h`<div class="img-row" id="cImgRow">${caseImgRow()}</div>` : ''}
       <label class="switch"><input type="checkbox" name="enabled" ${data.enabled ? C.raw('checked') : ''}><i></i>${C.t('a.enabled')}</label>
       <h4 class="sec-title">${C.t('a.loot')}</h4>
       <div id="lootRows" class="loot">${lootRows()}</div>
@@ -161,10 +168,43 @@ async function caseEditor(body, id) {
       C.render(body.querySelector('#lootSum'), summary());
     }
     if (e.target.name === 'price') C.render(body.querySelector('#lootSum'), summary());
-    if (e.target.name === 'color' || e.target.name === 'emoji') {
+    if ((e.target.name === 'color' || e.target.name === 'emoji') && !data.image) {
       const f = new FormData(form);
       const color = /^#[0-9a-f]{6}$/i.test(f.get('color')) ? f.get('color') : data.color;
       C.render(body.querySelector('#cPreview'), C.chest(color, f.get('emoji') || data.emoji, 56));
+    }
+  });
+  // picture: upload / remove without losing unsaved form edits
+  const setCaseImage = (img) => {
+    data.image = img;
+    const f = new FormData(form);
+    const color = /^#[0-9a-f]{6}$/i.test(f.get('color')) ? f.get('color') : data.color;
+    C.render(body.querySelector('#cPreview'), C.caseArt({ ...data, color, emoji: f.get('emoji') || data.emoji }, 56));
+    C.render(body.querySelector('#cImgRow'), caseImgRow());
+  };
+  body.querySelector('#cImgRow')?.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      const dataUrl = await resizeImage(file, 512);
+      const r = await C.API.post(`/admin/cases/${data.id}/image`, { dataUrl });
+      await C.reloadCatalog();
+      if (!body.isConnected) return;
+      setCaseImage(r.case.image);
+      C.toast(C.t('a.saved'), 'ok');
+    } catch (err) {
+      adminError(err);
+    }
+  });
+  body.querySelector('#cImgRow')?.addEventListener('click', async (e) => {
+    if (!e.target.closest('#cImgDel')) return;
+    try {
+      await C.API.del(`/admin/cases/${data.id}/image`);
+      await C.reloadCatalog();
+      if (!body.isConnected) return;
+      setCaseImage(null);
+    } catch (err) {
+      adminError(err);
     }
   });
   form.addEventListener('click', (e) => {
@@ -289,12 +329,11 @@ async function itemsList(body) {
   body.querySelector('#itNew').addEventListener('click', () => itemEditor(null, () => itemsList(body)));
 }
 
-function resizeImage(file) {
+function resizeImage(file, max = 256) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
-      const max = 256;
       const k = Math.min(1, max / Math.max(img.width, img.height));
       const c = document.createElement('canvas');
       c.width = Math.round(img.width * k);

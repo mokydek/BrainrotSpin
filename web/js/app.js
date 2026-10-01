@@ -50,6 +50,14 @@ window.__BS = S; // handy for debugging in the browser console
 
 const api = (p) => API.apiUrl(p);
 const art = (item) => itemArt(item, api);
+/** Case art: picture uploaded in the admin panel, otherwise a chest in the case colour. */
+const caseImg = (c, size = 96) => {
+  if (c && c.image) {
+    const src = c.image.startsWith('/') ? api(c.image) : c.image;
+    return html`<img class="case-img" src="${src}" alt="" decoding="async" width="${size}" height="${Math.round(size * 0.85)}">`;
+  }
+  return chest(c ? c.color : '', c ? c.emoji : '📦', size);
+};
 
 // ------------------------------------------------------------------ theme & language
 function applyTheme(name, { save = false } = {}) {
@@ -356,7 +364,7 @@ function viewCases(view) {
     html`
     ${fc
       ? html`<button class="free-card" data-case="${fc.id}">
-          <div class="free-chest">${chest(fc.color, fc.emoji, 86)}</div>
+          <div class="free-chest${fc.image ? ' has-img' : ''}">${caseImg(fc, 86)}</div>
           <div class="free-info">
             <div class="free-title">${caseName(fc)}</div>
             <div class="free-sub">${t('freeHint')}</div>
@@ -368,7 +376,7 @@ function viewCases(view) {
       ${paid.map(
         (c) => html`<button class="case-card" data-case="${c.id}" style="--cc:${c.color};--cca:${rgba(c.color, 0.34)}">
           <div class="case-glow"></div>
-          <div class="case-art">${chest(c.color, c.emoji, 96)}</div>
+          <div class="case-art${c.image ? ' has-img' : ''}">${caseImg(c, 96)}</div>
           <div class="case-name">${caseName(c)}</div>
           <div class="case-price">${money(c.price, 15)}</div>
         </button>`,
@@ -1011,6 +1019,7 @@ function adminCtx() {
     $$,
     coin,
     chest,
+    caseArt: caseImg,
     art,
     money,
     toast,
