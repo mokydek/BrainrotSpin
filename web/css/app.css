@@ -251,6 +251,41 @@ a { color: inherit; }
 .drop-val { display: flex; align-items: center; gap: 2px; font-size: 11px; font-weight: 800; }
 .drop-user { font-size: 9.5px; color: var(--muted); max-width: 58px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
 .drop.enter { animation: dropIn 0.55s cubic-bezier(0.2, 1.2, 0.4, 1); }
+/* where the drop came from (case / upgrader): shown on hover, or on tap on touch screens */
+.top24 { position: relative; }
+.drop-src {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 4px;
+  border-radius: inherit;
+  background: radial-gradient(circle at 50% 35%, var(--rca, rgba(255, 255, 255, 0.08)), transparent 75%);
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.94);
+  transition: opacity 0.18s, transform 0.18s;
+}
+.src-art { display: flex; align-items: center; justify-content: center; height: 36px; }
+.src-art .chest { width: 40px; height: auto; }
+.src-art .case-img { width: 44px; border-radius: 8px; }
+.drop-src.up .src-art { color: var(--a1); }
+.drop-src.up svg { width: 32px; height: 32px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 8px var(--a1-glow)); }
+.src-name { font-size: 9.5px; font-weight: 800; line-height: 1.15; text-align: center; max-width: 100%; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.top24 .src-art { height: 40px; }
+.top24 .src-art .chest { width: 46px; }
+.top24 .src-name { font-size: 11px; }
+.drop > :not(.drop-src), .top24 > :not(.drop-src) { transition: opacity 0.18s; }
+@media (hover: hover) {
+  .drop:hover .drop-src, .top24:hover .drop-src { opacity: 1; transform: none; }
+  .drop:hover > :not(.drop-src), .top24:hover > :not(.drop-src) { opacity: 0; }
+}
+.show-src .drop-src { opacity: 1; transform: none; }
+.show-src > :not(.drop-src) { opacity: 0; }
 @keyframes dropIn { from { transform: translateX(-24px) scale(0.7); opacity: 0; } }
 
 /* ---------------------------------------------------------------- cases */

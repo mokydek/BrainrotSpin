@@ -262,11 +262,21 @@ function renderTabbar() {
 }
 
 // ------------------------------------------------------------------ live drops
+/** Where a drop came from, shown over the tile on hover: the case (picture + name) or the upgrader. */
+function dropSource(d, size) {
+  if (d.kind === 'upgrade') {
+    return html`<div class="drop-src up"><span class="src-art">${raw(ICON.upgrade)}</span><span class="src-name">${t('tab.upgrade')}</span></div>`;
+  }
+  const c = d.caseId ? S.cases.find((x) => x.id === d.caseId) : null;
+  return html`<div class="drop-src"><span class="src-art">${caseImg(c, size)}</span><span class="src-name">${c ? caseName(c) : t('srcCase')}</span></div>`;
+}
+
 function dropTile(d, enter = false) {
-  return html`<div class="drop r-${d.item.rarity}${enter ? ' enter' : ''}" title="${d.item.name}">
+  return html`<div class="drop r-${d.item.rarity}${enter ? ' enter' : ''}" title="${d.item.name}" data-src="${d.kind}">
     <div class="drop-art">${art(d.item)}</div>
     <div class="drop-val">${coin(10)}${fmt(d.value)}</div>
     <div class="drop-user">${d.user.name}</div>
+    ${dropSource(d, 40)}
   </div>`;
 }
 
@@ -286,7 +296,7 @@ function renderTop24() {
     el,
     html`<div class="top24-label">${t('top24')}</div>
     ${d
-      ? html`<div class="top24-body"><div class="top24-art">${art(d.item)}</div><div class="top24-info"><div class="top24-val">${coin(12)}${fmt(d.value)}</div><div class="top24-user">${d.user.name}</div></div></div>`
+      ? html`<div class="top24-body"><div class="top24-art">${art(d.item)}</div><div class="top24-info"><div class="top24-val">${coin(12)}${fmt(d.value)}</div><div class="top24-user">${d.user.name}</div></div></div>${dropSource(d, 44)}`
       : html`<div class="top24-empty">${t('empty')}</div>`}`,
   );
 }
@@ -1596,7 +1606,18 @@ const actions = {
   'do-upgrade': () => doUpgrade(),
 };
 
+// touch screens have no hover: a tap on a live drop shows where it came from
+const NO_HOVER = window.matchMedia ? window.matchMedia('(hover: none)') : { matches: false };
+
 document.addEventListener('click', (e) => {
+  const live = e.target.closest('.drop, .top24');
+  if (live && live.querySelector('.drop-src') && NO_HOVER.matches) {
+    const on = !live.classList.contains('show-src');
+    for (const x of $$('.show-src')) x.classList.remove('show-src');
+    live.classList.toggle('show-src', on);
+    haptic.tick();
+    return;
+  }
   const tab = e.target.closest('[data-tab]');
   if (tab && !S.busy) {
     haptic.tick();

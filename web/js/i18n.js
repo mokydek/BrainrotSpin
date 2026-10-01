@@ -3,6 +3,7 @@
 const ru = {
   online: '{n} онлайн',
   liveDrops: 'Последние дропы онлайн',
+  srcCase: 'Кейс',
   top24: 'Топ дроп 24ч',
   empty: 'Пока пусто',
   'tab.cases': 'Кейсы',
@@ -303,6 +304,7 @@ const ru = {
 const uk = {
   online: '{n} онлайн',
   liveDrops: 'Останні дропи онлайн',
+  srcCase: 'Кейс',
   top24: 'Топ дроп 24г',
   empty: 'Поки порожньо',
   'tab.cases': 'Кейси',
@@ -602,6 +604,7 @@ const uk = {
 const en = {
   online: '{n} online',
   liveDrops: 'Live drops',
+  srcCase: 'Case',
   top24: 'Top drop 24h',
   empty: 'Nothing yet',
   'tab.cases': 'Cases',
