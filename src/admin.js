@@ -133,6 +133,21 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
     return out;
   }
 
+  // rights of the main admin; without OWNER_IDS / OWNER_USERNAMES every admin has them
+  const isMain = (user) => users.isOwnerId(user.id) || !users.hasOwner();
+
+  // Only the main admin changes the odds: what drops from a case and with which chance, and the
+  // upgrader settings. Other admins keep the same screens; a change of the odds is refused with the
+  // generic error (like a ban of the main admin), everything else in the case / settings still saves.
+  const ODDS_SETTINGS = ['upgrade_edge', 'upgrade_min_chance', 'upgrade_max_chance'];
+  const r4 = (x) => Math.round(Number(x) * 10000) / 10000;
+  function guardLoot(user, existing, items) {
+    if (isMain(user)) return;
+    const before = new Map((existing ? existing.items : []).map((e) => [e.item_id, r4(e.chance)]));
+    const same = items.length === before.size && items.every((e) => before.get(e.itemId) === r4(e.chance));
+    if (!same) throw new GameError('forbidden', 403);
+  }
+
   async function saveItems(cl, caseId, items) {
     await cl.query('DELETE FROM bs_case_items WHERE case_id = $1', [caseId]);
     for (const e of items) {
@@ -147,6 +162,7 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
       const existing = game.catalog.cases.get(id);
       if (!existing) throw new GameError('not_found', 404);
       const c = parseCaseBody(req.body || {}, existing);
+      guardLoot(req.user, existing, c.items);
       await db.tx(async (cl) => {
         await cl.query(
           `UPDATE bs_cases SET name_ru=$2, name_uk=$3, name_en=$4, emoji=$5, color=$6, sort=$7, enabled=$8, price=$9, category_id=$10 WHERE id=$1`,
@@ -163,6 +179,7 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
     '/cases',
     wrap(async (req) => {
       const c = parseCaseBody(req.body || {}, null);
+      guardLoot(req.user, null, c.items);
       const base = c.name_en.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'case';
       const slug = `${base}-${crypto.randomBytes(3).toString('hex')}`;
       const row = await db.tx(async (cl) => {
@@ -568,7 +585,7 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
   const OWNER_SETTINGS = ['stars_rate'];
   const visibleSettings = (user) => {
     const s = settings.all();
-    if (!users.isOwnerId(user.id)) for (const k of OWNER_SETTINGS) delete s[k];
+    if (!isMain(user)) for (const k of OWNER_SETTINGS) delete s[k];
     return s;
   };
   r.get('/settings', wrap(async (req) => ({ settings: visibleSettings(req.user) })));
@@ -576,7 +593,13 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
     '/settings',
     wrap(async (req) => {
       const patch = { ...(req.body && typeof req.body === 'object' ? req.body : {}) };
-      if (!users.isOwnerId(req.user.id)) for (const k of OWNER_SETTINGS) delete patch[k];
+      if (!isMain(req.user)) {
+        for (const k of OWNER_SETTINGS) delete patch[k];
+        // upgrader odds: the form always sends them; only an actual change is refused
+        for (const k of ODDS_SETTINGS) {
+          if (Object.hasOwn(patch, k) && Number(String(patch[k]).replace(',', '.')) !== settings.get(k)) throw new GameError('forbidden', 403);
+        }
+      }
       await settings.update(patch);
       return { settings: visibleSettings(req.user) };
     }),

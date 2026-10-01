@@ -16,6 +16,11 @@ export function createUsers({ db, settings, config }) {
     return config.ownerIds.includes(Number(id)) || Object.values(pins()).includes(Number(id));
   }
 
+  /** Is a main admin configured at all (OWNER_IDS / OWNER_USERNAMES)? */
+  function hasOwner() {
+    return config.ownerIds.length > 0 || config.ownerUsernames.length > 0;
+  }
+
   async function claimOwner(u) {
     const name = (u.username || '').toLowerCase();
     if (!name || !config.ownerUsernames.includes(name)) return false;
@@ -70,5 +75,5 @@ export function createUsers({ db, settings, config }) {
     return syncOwner(await db.one('SELECT * FROM bs_users WHERE id = $1', [id]));
   }
 
-  return { upsertFromTelegram, ensureUser, isOwnerId };
+  return { upsertFromTelegram, ensureUser, isOwnerId, hasOwner };
 }
