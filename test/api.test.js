@@ -572,6 +572,8 @@ test('admin: settings and channel check', async () => {
   const admin = users.alice;
   const s = await app.get('/api/admin/settings', { user: admin });
   assert.equal(s.body.settings.free_cooldown_hours, 24);
+  // no main admin configured (OWNER_IDS / OWNER_USERNAMES): every admin has the main admin's settings
+  assert.equal(s.body.settings.stars_rate, 1);
   assert.equal((await app.put('/api/admin/settings', { user: admin, body: { upgrade_min_chance: 90 } })).body.error, 'bad_setting');
   assert.equal((await app.put('/api/admin/settings', { user: admin, body: { support_url: 'ftp://x' } })).body.error, 'bad_setting');
   assert.equal((await app.post('/api/admin/check-channel', { user: admin })).body.error, 'no_channel');

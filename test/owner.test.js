@@ -108,3 +108,63 @@ test('Stars rate: only the main admin sees and changes it', async () => {
   await app.put('/api/admin/settings', { user: owner, body: { stars_rate: 1, start_balance: 0 } });
   assert.equal(app.ctx.settings.get('stars_rate'), 1);
 });
+
+test('case odds and upgrader settings: only the main admin changes them', async () => {
+  const noob = [...app.ctx.game.catalog.cases.values()].find((c) => c.slug === 'noob');
+  const lootOf = () => app.ctx.game.catalog.cases.get(noob.id).items.map((e) => ({ itemId: e.item_id, chance: e.chance }));
+  const body = (over = {}) => ({
+    name_ru: noob.name_ru, name_uk: noob.name_uk, name_en: noob.name_en, emoji: noob.emoji, color: noob.color,
+    sort: noob.sort, enabled: true, price: noob.price, items: lootOf(), ...over,
+  });
+  const loot0 = lootOf();
+  const put = (u, b) => app.put(`/api/admin/cases/${noob.id}`, { user: u, body: b });
+
+  // a regular admin still edits everything else in the case (the loot comes back unchanged)
+  const ok = await put(admin, body({ price: noob.price + 1 }));
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(app.ctx.game.catalog.cases.get(noob.id).price, noob.price + 1);
+  assert.deepEqual(lootOf(), loot0);
+  // … but any change of the odds is refused and nothing is saved
+  const changed = loot0.map((e, i) => (i === 0 ? { ...e, chance: e.chance + 1 } : e));
+  for (const items of [changed, loot0.slice(1), [...loot0, { itemId: [...app.ctx.game.catalog.items.keys()].find((id) => !loot0.some((e) => e.itemId === id)), chance: 1 }]]) {
+    const r = await put(admin, body({ price: 99, items }));
+    assert.equal(r.status, 403);
+    assert.equal(r.body.error, 'forbidden');
+  }
+  assert.equal(app.ctx.game.catalog.cases.get(noob.id).price, noob.price + 1, 'nothing saved');
+  assert.deepEqual(lootOf(), loot0);
+  // a new case with drops = new odds: main admin only; an empty, switched-off case is fine
+  const fresh = { name_ru: 'Новый', name_uk: 'Новий', name_en: 'New', emoji: '📦', color: '#f59e0b', sort: 500, price: 10 };
+  const withLoot = await app.post('/api/admin/cases', { user: admin, body: { ...fresh, enabled: true, items: [{ itemId: loot0[0].itemId, chance: 100 }] } });
+  assert.equal(withLoot.status, 403);
+  const empty = await app.post('/api/admin/cases', { user: admin, body: { ...fresh, enabled: false, items: [] } });
+  assert.equal(empty.status, 200, JSON.stringify(empty.body));
+  // the main admin changes the odds; players see the new chances
+  const own = await put(owner, body({ price: noob.price, items: changed }));
+  assert.equal(own.status, 200, JSON.stringify(own.body));
+  assert.deepEqual(lootOf(), changed);
+  const pub = (await app.get('/api/catalog', { user: users.alice })).body.cases.find((c) => c.id === noob.id);
+  const sum = changed.reduce((s, e) => s + e.chance, 0);
+  assert.equal(pub.items.find((e) => e.item.id === changed[0].itemId).chance, Math.round((changed[0].chance / sum) * 100000) / 1000);
+  const own2 = await app.post('/api/admin/cases', { user: owner, body: { ...fresh, enabled: true, items: [{ itemId: loot0[0].itemId, chance: 100 }] } });
+  assert.equal(own2.status, 200, JSON.stringify(own2.body));
+  await put(owner, body({ price: noob.price, items: loot0 }));
+
+  // upgrader: the settings form sends every field; unchanged odds are fine for everyone
+  const s0 = (await app.get('/api/admin/settings', { user: admin })).body.settings;
+  const same = await app.put('/api/admin/settings', { user: admin, body: { ...s0, start_balance: 5 } });
+  assert.equal(same.status, 200, JSON.stringify(same.body));
+  assert.equal(app.ctx.settings.get('start_balance'), 5);
+  for (const k of ['upgrade_edge', 'upgrade_min_chance', 'upgrade_max_chance']) {
+    const r = await app.put('/api/admin/settings', { user: admin, body: { ...s0, start_balance: 6, [k]: s0[k] + 1 } });
+    assert.equal(r.status, 403, k);
+    assert.equal(app.ctx.settings.get(k), s0[k], `${k} unchanged`);
+  }
+  assert.equal(app.ctx.settings.get('start_balance'), 5, 'nothing saved');
+  const o = await app.put('/api/admin/settings', { user: owner, body: { upgrade_edge: 25, upgrade_max_chance: 66, start_balance: 0 } });
+  assert.equal(o.status, 200, JSON.stringify(o.body));
+  const up = (await app.get('/api/catalog', { user: users.alice })).body.upgrade;
+  assert.equal(up.edge, 25);
+  assert.equal(up.maxChance, 66);
+  await app.put('/api/admin/settings', { user: owner, body: { upgrade_edge: s0.upgrade_edge, upgrade_max_chance: s0.upgrade_max_chance } });
+});
