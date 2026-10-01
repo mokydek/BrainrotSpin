@@ -110,8 +110,8 @@ export function telegramStub(user, { version = '8.0' } = {}) {
   } };`;
 }
 
-export async function newPage(browser, base, { user = ME, width = 390, height = 844, stub = true, path = '/' } = {}) {
-  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, hasTouch: true, isMobile: width < 600, locale: 'ru-RU' });
+export async function newPage(browser, base, { user = ME, width = 390, height = 844, stub = true, path = '/', touch = true } = {}) {
+  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, hasTouch: touch, isMobile: touch && width < 600, locale: 'ru-RU' });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
