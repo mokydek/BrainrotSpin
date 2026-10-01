@@ -344,15 +344,19 @@ export function createRequests({ db, settings, game, tg, config }) {
        WHERE m.request_id = r.id AND m.author <> 'system' ORDER BY m.id DESC LIMIT 1
     ) lm ON TRUE`;
 
-  async function list({ kind, scope = 'open' } = {}) {
+  // admin tabs: in progress (new + active) / done / declined; "all" for everything
+  const SCOPES = { active: OPEN, open: OPEN, done: ['done'], rejected: ['rejected'], all: null };
+
+  async function list({ kind, scope = 'active' } = {}) {
     if (kind !== 'deposit' && kind !== 'withdraw') throw new GameError('bad_field', 400, { field: 'kind' });
+    if (!Object.hasOwn(SCOPES, scope)) throw new GameError('bad_field', 400, { field: 'scope' });
     const rows = await db.many(
       `SELECT r.*, u.id AS uid, u.first_name, u.username, u.photo_url,
               lm.author AS last_author, lm.text AS last_text
          FROM bs_requests r JOIN bs_users u ON u.id = r.user_id ${LAST_MSG}
-        WHERE r.kind = $1 AND ($2::boolean IS FALSE OR r.status IN ('new', 'active'))
+        WHERE r.kind = $1 AND ($2::text[] IS NULL OR r.status = ANY($2::text[]))
         ORDER BY r.updated_at DESC, r.id DESC LIMIT 200`,
-      [kind, scope === 'open'],
+      [kind, SCOPES[scope]],
     );
     return rows.map(view);
   }

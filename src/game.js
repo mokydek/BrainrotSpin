@@ -11,7 +11,7 @@ export class GameError extends Error {
 }
 
 export const cryptoRng = { int: (max) => crypto.randomInt(0, max) };
-export const MAX_OPEN = 3; // openings of one case at once
+export const OPEN_COUNTS = [1, 2, 3, 5]; // openings of one case at once
 
 export function displayName(u) {
   const name = (u.first_name || '').trim() || (u.username ? `@${u.username}` : `#${u.id}`);
@@ -160,13 +160,13 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
   }
 
   // ---------------------------------------------------------------- cases
-  /** Opens a paid case `count` times (1–3) in one go; the price is charged for every opening. */
+  /** Opens a paid case `count` times (1, 2, 3 or 5) in one go; the price is charged for every opening. */
   async function openCase(user, caseId, count = 1) {
     const c = catalog.cases.get(Number(caseId));
     if (!c || !c.enabled || !c.items.length) throw new GameError('case_not_found', 404);
     if (c.is_free) throw new GameError('use_free_endpoint');
     const n = count === undefined || count === null ? 1 : Number(count);
-    if (!Number.isInteger(n) || n < 1 || n > MAX_OPEN) throw new GameError('bad_request');
+    if (!OPEN_COUNTS.includes(n)) throw new GameError('bad_request');
     const items = Array.from({ length: n }, () => catalog.items.get(pickWeighted(c.items, rng).item_id));
     const cost = c.price * n;
     const won = items.reduce((s, it) => s + it.value, 0);
