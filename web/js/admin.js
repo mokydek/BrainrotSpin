@@ -7,7 +7,7 @@ const RARITIES = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic', '
 let C = null; // context from app.js
 let bcastTimer = null;
 let reqTimer = null;
-let reqScope = 'open';
+let reqScope = 'active';
 let reqSeq = 0; // the latest list/card load wins
 
 function stopReqTimer() {
@@ -714,10 +714,11 @@ const SETTING_FIELDS = [
 async function settingsForm(body) {
   const { settings: s } = await C.API.get('/admin/settings');
   if (!body.isConnected) return;
+  const fields = SETTING_FIELDS.filter(([k]) => Object.hasOwn(s, k)); // some are for the main admin only
   C.render(
     body,
     h`<form class="form" id="setForm" autocomplete="off">
-      ${SETTING_FIELDS.map(([k, type]) => {
+      ${fields.map(([k, type]) => {
         if (type === 'bool') return h`<label class="switch"><input type="checkbox" name="${k}" ${s[k] ? C.raw('checked') : ''}><i></i>${C.t('a.s.' + k)}</label>`;
         if (type === 'textarea') return h`<label>${C.t('a.s.' + k)}<textarea class="input" name="${k}" rows="4" maxlength="1000">${s[k]}</textarea></label>`;
         return h`<label>${C.t('a.s.' + k)}<input class="input" name="${k}" type="${type === 'number' ? 'number' : 'text'}" ${type === 'number' ? C.raw('step="any"') : ''} value="${s[k]}" ${type === 'url' ? C.raw('placeholder="https://t.me/…"') : ''}></label>`;
@@ -734,7 +735,7 @@ async function settingsForm(body) {
     e.preventDefault();
     const f = new FormData(form);
     const patch = {};
-    for (const [k, type] of SETTING_FIELDS) {
+    for (const [k, type] of fields) {
       if (type === 'bool') patch[k] = f.get(k) === 'on';
       else if (type === 'number') patch[k] = Number(f.get(k));
       else patch[k] = String(f.get(k) || '');
@@ -821,6 +822,7 @@ async function broadcast(body) {
 
 // ------------------------------------------------------------------ deposits & withdrawals
 const SECTION_OF = { deposit: 'deposits', withdraw: 'withdrawals' };
+const REQ_SCOPES = ['active', 'done', 'rejected'];
 const isOpen = (r) => r.method === 'brainrot' && (r.status === 'new' || r.status === 'active');
 
 function refreshCounts() {
@@ -862,7 +864,7 @@ async function reqList(body, kind) {
   const listHtml = (list) => (list.length ? h`<div class="list">${list.map(reqRow)}</div>` : h`<div class="empty-box"><p>${C.t('a.r.empty')}</p></div>`);
   C.render(
     body,
-    h`<div class="seg adm-seg">${['open', 'all'].map((s) => h`<button type="button" data-scope="${s}" class="${reqScope === s ? 'on' : ''}">${C.t('a.r.' + s)}</button>`)}</div>
+    h`<div class="seg adm-seg">${REQ_SCOPES.map((s) => h`<button type="button" data-scope="${s}" class="${reqScope === s ? 'on' : ''}">${C.t('a.r.sc.' + s)}</button>`)}</div>
     <div id="reqList">${listHtml(requests)}</div>`,
   );
   body.querySelector('.adm-seg').addEventListener('click', (e) => {

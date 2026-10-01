@@ -48,7 +48,7 @@ const S = {
   busy: false,
   up: { sel: new Set(), target: null, tab: 'inv', pct: null },
   freeSub: null, // null unknown, true/false after a check
-  openCount: 1, // how many times a paid case is opened at once (1–3)
+  openCount: 1, // how many times a paid case is opened at once (1, 2, 3 or 5)
   timers: [],
 };
 window.__BS = S; // handy for debugging in the browser console
@@ -500,19 +500,21 @@ function openButton(c) {
     : html`<button class="btn primary big" disabled>${t('notEnough')}</button>`;
 }
 
-const MAX_OPEN = 3;
+const OPEN_COUNTS = [1, 2, 3, 5];
 /** Openings at once for this case: the chosen number, or fewer when the balance can't cover it. */
 function openCount(c) {
   if (!c || c.isFree) return 1;
-  let n = S.openCount;
-  while (n > 1 && S.me.balance < c.price * n) n--;
-  return n;
+  for (let i = OPEN_COUNTS.length - 1; i > 0; i--) {
+    const n = OPEN_COUNTS[i];
+    if (n <= S.openCount && S.me.balance >= c.price * n) return n;
+  }
+  return 1;
 }
 
 function countSeg(c) {
   if (c.isFree) return '';
   const cur = openCount(c);
-  return html`${[1, 2, 3].slice(0, MAX_OPEN).map(
+  return html`${OPEN_COUNTS.map(
     (n) => html`<button data-act="count" data-n="${n}" class="${n === cur ? 'on' : ''}" ${n > 1 && S.me.balance < c.price * n ? raw('disabled') : ''}>x${n}</button>`,
   )}`;
 }
@@ -832,10 +834,12 @@ function viewUpgrade(view) {
     </div>
     <div class="up-slots" id="upSlots"></div>
     <div class="seg up-pcts" id="upPcts"></div>
+    <div class="up-range"><input type="range" id="upRange" min="${upRangeMin()}" max="${upRangeMax()}" step="1" aria-label="${t('chance')}"><b id="upRangeVal"></b></div>
     <div class="open-row"><button class="btn primary big" data-act="do-upgrade" id="upBtn">${t('upgrade')}</button></div>
     <div class="seg" id="upSeg"></div>
     <div id="upGrid"></div>`,
   );
+  $('#upRange').addEventListener('input', (e) => setUpPct(Number(e.target.value), { quiet: true }));
   updateUpgrade();
 }
 
@@ -871,7 +875,17 @@ function updateUpgrade() {
   if (btn) btn.disabled = !(bet > 0 && target) || S.busy;
   if (!target) S.up.pct = null;
   const pcts = $('#upPcts');
-  if (pcts) render(pcts, html`${UP_PCTS.map((p) => html`<button data-act="up-pct" data-p="${p}" class="${S.up.pct === p ? 'on' : ''}">${p}%</button>`)}`);
+  const lo = upRangeMin();
+  const hi = upRangeMax();
+  if (pcts) render(pcts, html`${UP_PCTS.filter((p) => p >= lo && p <= hi).map((p) => html`<button data-act="up-pct" data-p="${p}" class="${S.up.pct === p ? 'on' : ''}">${p}%</button>`)}`);
+  const range = $('#upRange');
+  if (range) {
+    // the slider shows the chosen percentage, or the chance of a hand-picked target
+    const v = S.up.pct || (target ? Math.round(chance) : Math.round((lo + hi) / 2));
+    range.disabled = !bet || S.busy;
+    range.value = String(Math.min(hi, Math.max(lo, v)));
+    $('#upRangeVal').textContent = `${range.value}%`;
+  }
   render(
     $('#upSeg'),
     html`<button data-act="up-tab" data-v="inv" class="${S.up.tab === 'inv' ? 'on' : ''}">${t('myItems')} <span class="cnt">${S.inventory.length}</span></button>
@@ -921,6 +935,21 @@ function updateUpgrade() {
 }
 
 const UP_PCTS = [75, 50, 30];
+const upRangeMin = () => Math.max(1, Math.ceil(S.upgrade.minChance));
+const upRangeMax = () => Math.max(upRangeMin(), Math.floor(S.upgrade.maxChance));
+
+/** Choose the target whose chance is the closest to `pct` (buttons and the slider). */
+function setUpPct(pct, { quiet = false } = {}) {
+  if (S.busy) return;
+  const bet = upBet();
+  if (!bet) return quiet ? updateUpgrade() : toast(t('pickItems'));
+  const it = targetForChance(bet, pct);
+  if (!it) return quiet ? updateUpgrade() : toast(t('noTargets'));
+  if (S.up.target !== it.id || !quiet) haptic.tick();
+  S.up.target = it.id;
+  S.up.pct = pct;
+  updateUpgrade();
+}
 
 /** The target whose chance with the current bet is the closest to `pct`. */
 function targetForChance(bet, pct) {
@@ -938,6 +967,7 @@ async function doUpgrade() {
   if (!ids.length || !target || S.busy) return;
   S.busy = true;
   $('#upBtn').disabled = true;
+  $('#upRange').disabled = true;
   haptic.impact('medium');
   try {
     const res = await API.post('/upgrade', { ids, target });
@@ -986,6 +1016,8 @@ async function doUpgrade() {
     if (!afterBusy()) {
       const btn = $('#upBtn');
       if (btn) btn.disabled = !(S.up.sel.size && S.up.target);
+      const rg = $('#upRange');
+      if (rg) rg.disabled = !upBet();
     }
   }
 }
@@ -1479,7 +1511,7 @@ const actions = {
     const r = route();
     const c = r.view === 'case' && S.cases.find((x) => x.id === r.id);
     if (!c) return;
-    S.openCount = Math.min(MAX_OPEN, Math.max(1, Number(el.dataset.n) || 1));
+    S.openCount = OPEN_COUNTS.includes(Number(el.dataset.n)) ? Number(el.dataset.n) : 1;
     haptic.tick();
     refreshOpenRow(c);
   },
@@ -1560,17 +1592,7 @@ const actions = {
     haptic.tick();
     updateUpgrade();
   },
-  'up-pct': (el) => {
-    if (S.busy) return;
-    const bet = upBet();
-    if (!bet) return toast(t('pickItems'));
-    const it = targetForChance(bet, Number(el.dataset.p));
-    if (!it) return toast(t('noTargets'));
-    S.up.target = it.id;
-    S.up.pct = Number(el.dataset.p);
-    haptic.tick();
-    updateUpgrade();
-  },
+  'up-pct': (el) => setUpPct(Number(el.dataset.p)),
   'do-upgrade': () => doUpgrade(),
 };
 
