@@ -67,10 +67,10 @@ test('bootstrap creates the player and returns everything the app needs', async 
   const griffin = b.cases.find((c) => c.slug === 'griffin');
   assert.equal(griffin.price, 2000);
   assert.equal(griffin.name.ru, 'Грифон кейс');
-  assert.equal(griffin.items[0].item.name, 'Skibidi Toilet');
+  assert.equal(griffin.items[0].item.name, 'Strawberry Elephant');
   const sum = griffin.items.reduce((s, e) => s + e.chance, 0);
   assert.ok(Math.abs(sum - 100) < 0.01);
-  assert.equal(b.items.length, 75);
+  assert.equal(b.items.length, 136);
   assert.deepEqual(b.upgrade, { edge: 10, minChance: 1, maxChance: 80 });
   assert.equal(b.free.requireShare, true);
   assert.equal(b.free.requireSub, false, 'no channel configured yet');
@@ -178,42 +178,42 @@ test('upgrader: validation, win and loss', async () => {
   };
   const a = await give('Salamino Penguino'); // 25
   const b = await give('Chimpanzini Bananini'); // 30
-  const tralalero = itemByName('Tralalero Tralala'); // 200
+  const spooky = itemByName('Spooky and Pumpky'); // 200
   const cheap = itemByName('Tim Cheese'); // 2
   const toilet = itemByName('Skibidi Toilet'); // 16500
 
   assert.equal((await app.post('/api/upgrade', { user: u, body: { ids: [a, b], target: cheap.id } })).body.error, 'target_too_cheap');
   assert.equal((await app.post('/api/upgrade', { user: u, body: { ids: [a, b], target: toilet.id } })).body.error, 'chance_too_low');
-  assert.equal((await app.post('/api/upgrade', { user: u, body: { ids: [a, 999999], target: tralalero.id } })).body.error, 'items_missing');
-  assert.equal((await app.post('/api/upgrade', { user: u, body: { ids: [], target: tralalero.id } })).status, 400);
-  assert.equal((await app.post('/api/upgrade', { user: u, body: { ids: [1, 2, 3, 4, 5, 6, 7], target: tralalero.id } })).status, 400);
+  assert.equal((await app.post('/api/upgrade', { user: u, body: { ids: [a, 999999], target: spooky.id } })).body.error, 'items_missing');
+  assert.equal((await app.post('/api/upgrade', { user: u, body: { ids: [], target: spooky.id } })).status, 400);
+  assert.equal((await app.post('/api/upgrade', { user: u, body: { ids: [1, 2, 3, 4, 5, 6, 7], target: spooky.id } })).status, 400);
   assert.equal((await app.post('/api/upgrade', { user: u, body: { ids: [a], target: 999999 } })).status, 404);
 
   // 55 / 200 * 90 = 24.75% chance; roll 0.000 wins
   rng.queue.push(0);
-  const win = await app.post('/api/upgrade', { user: u, body: { ids: [a, b], target: tralalero.id } });
+  const win = await app.post('/api/upgrade', { user: u, body: { ids: [a, b], target: spooky.id } });
   assert.equal(win.status, 200, JSON.stringify(win.body));
   assert.equal(win.body.won, true);
   assert.equal(win.body.chance, 24.75);
   assert.equal(win.body.bet, 55);
-  assert.equal(win.body.item.name, 'Tralalero Tralala');
+  assert.equal(win.body.item.name, 'Spooky and Pumpky');
   let inv = (await app.get('/api/inventory', { user: u })).body.inventory;
-  assert.deepEqual(inv.map((i) => i.item.name), ['Tralalero Tralala']);
+  assert.deepEqual(inv.map((i) => i.item.name), ['Spooky and Pumpky']);
 
   // Roll 24.750 is exactly on the edge -> loss (strictly lower wins)
   const c = await give('Salamino Penguino');
   const d = await give('Chimpanzini Bananini');
   rng.queue.push(24750);
-  const lose = await app.post('/api/upgrade', { user: u, body: { ids: [c, d], target: tralalero.id } });
+  const lose = await app.post('/api/upgrade', { user: u, body: { ids: [c, d], target: spooky.id } });
   assert.equal(lose.body.won, false);
   assert.equal(lose.body.roll, 24.75);
   inv = (await app.get('/api/inventory', { user: u })).body.inventory;
-  assert.deepEqual(inv.map((i) => i.item.name), ['Tralalero Tralala']);
+  assert.deepEqual(inv.map((i) => i.item.name), ['Spooky and Pumpky']);
 
   const me = await app.get('/api/me', { user: u });
   assert.equal(me.body.stats.upgradesTotal, 2);
   assert.equal(me.body.stats.upgradesWon, 1);
-  assert.equal(me.body.stats.bestDrop.name, 'Tralalero Tralala');
+  assert.equal(me.body.stats.bestDrop.name, 'Spooky and Pumpky');
   const feed = await app.get('/api/feed');
   assert.equal(feed.body.feed[0].kind, 'upgrade');
 });
@@ -382,6 +382,44 @@ test('admin: overview, cases and odds editing', async () => {
 
   // Restore the noob case to the original odds
   await app.put(`/api/admin/cases/${noob.id}`, { user: admin, body: noob });
+});
+
+test('admin: case picture upload, public URL, removal', async () => {
+  const admin = users.alice;
+  const dragon = (await app.get('/api/admin/cases', { user: admin })).body.cases.find((c) => c.slug === 'dragon');
+  assert.equal(dragon.image, null);
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  // players cannot upload, bad data is rejected, unknown case is 404
+  assert.equal((await app.post(`/api/admin/cases/${dragon.id}/image`, { user: users.bob, body: { dataUrl: png } })).status, 403);
+  assert.equal((await app.post(`/api/admin/cases/${dragon.id}/image`, { user: admin, body: { dataUrl: 'data:text/html;base64,PHNjcmlwdD4=' } })).body.error, 'bad_field');
+  assert.equal((await app.post('/api/admin/cases/999999/image', { user: admin, body: { dataUrl: png } })).status, 404);
+
+  const up = await app.post(`/api/admin/cases/${dragon.id}/image`, { user: admin, body: { dataUrl: png } });
+  assert.equal(up.status, 200, JSON.stringify(up.body));
+  assert.match(up.body.case.image, new RegExp(`^/api/img/case/${dragon.id}\\?v=[0-9a-f]{8}$`));
+  // the rest of the case is untouched
+  assert.equal(up.body.case.price, dragon.price);
+  assert.equal(up.body.case.items.length, dragon.items.length);
+
+  const pub = (await app.get('/api/catalog', { user: users.bob })).body.cases.find((c) => c.slug === 'dragon');
+  assert.equal(pub.image, up.body.case.image);
+  assert.equal((await app.get('/api/catalog', { user: users.bob })).body.cases.find((c) => c.slug === 'noob').image, null);
+  const img = await fetch(app.base + pub.image);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  assert.match(img.headers.get('cache-control'), /immutable/);
+  assert.equal((await img.arrayBuffer()).byteLength, 70);
+  assert.equal((await fetch(app.base + '/api/img/case/999999')).status, 404);
+
+  // saving the case form keeps the picture
+  const saved = await app.put(`/api/admin/cases/${dragon.id}`, { user: admin, body: { ...dragon, price: dragon.price } });
+  assert.equal(saved.body.case.image, up.body.case.image);
+
+  const del = await app.del(`/api/admin/cases/${dragon.id}/image`, { user: admin });
+  assert.equal(del.status, 200);
+  assert.equal(del.body.case.image, null);
+  assert.equal((await fetch(app.base + pub.image)).status, 404);
+  assert.equal((await app.get('/api/catalog', { user: users.bob })).body.cases.find((c) => c.slug === 'dragon').image, null);
 });
 
 test('admin: items, images, players, balance, bans, gifts', async () => {

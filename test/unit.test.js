@@ -88,8 +88,30 @@ test('drop chances: cases return ~90% (free case EV 8)', () => {
   }
   const prices = Object.fromEntries(seed.cases.map((c) => [c.slug, c.price]));
   assert.deepEqual(prices, { free: 0, noob: 10, pro: 25, fish: 65, dlc: 200, halloween: 250, summer: 350, dragon: 450, mushroom: 750, griffin: 2000 });
-  const screenshot = { 'Garamma and Madundung': 60, 'Cash or Card': 70, 'Burguro and Fryuro': 90, 'Wave Rider': 60, "Witch's Broom": 65, "Cupid's Wings": 60, "Santa's Sleigh": 80, 'Dragon Cannelloni': 1100, 'Hydra Dragon Cannelloni': 1350, Griffin: 5000, 'La Secret Combinasion': 60, 'Capitano Moby': 130, 'Boppin Bunny': 150, 'Cooki and Milki': 170, 'Spooky and Pumpky': 175, 'Skibidi Toilet': 16500 };
-  for (const [n, v] of Object.entries(screenshot)) assert.equal(value.get(n), v, n);
+  // the owner's price list (01.10.2026) — every entry is in the catalogue with exactly this price
+  const priceList = {
+    Lavaka: 5, 'Candy Slap': 7, 'Divane Slap': 9, 'Spaghetti Tualetti': 10, 'Tralalero Tralala': 15, 'Ketupat Kepat': 20,
+    'Ketchuru and Musturu': 22, 'Ventoliero Pavonero': 30, 'Lava Blaster': 31, 'Los Planitos': 32, 'Los Mariachis': 39, Eviledon: 42,
+    'W or L': 40, 'Los Bros': 35, 'Gold Gold Gold': 46, 'La Ginger Sekolah': 47, 'Los Primos': 55, 'Pizza and Ranch': 57,
+    'La Secret Combinasion': 60, 'Wave Rider': 61, "Cupid's Wings": 61, 'Garama and Madundung': 65, "Witch's Broom": 61, 'Cash or Card': 65,
+    "Santa's Sleigh": 80, 'Los Tacoritas': 95, 'Burguro and Fryuro': 100, 'La Food Combinasion': 103, 'Pop Pop Petalini': 105,
+    'La Taco Combinasion': 125, 'Capitano Moby': 140, 'Popcuru and Fizzuru': 140, 'Celestial Pegasus': 140, 'Lovin Rose': 110, Cerberus: 150,
+    'Boppin Bunny': 130, 'Fragola La La La': 160, 'Cooki and Milki': 190, 'Spooky and Pumpky': 200, 'Globa Steppa': 234, 'Reinito Sleighito': 280,
+    'Los Amigos': 320, 'Bearito Cabinito': 350, 'Examen Bros': 400, 'La Breakfast Combinasion': 450, 'Rico Dinero': 500, 'Foxini Lanternini': 540,
+    Venuspino: 555, 'Los Chillis': 600, Bumbatron: 625, 'Rosey and Teddy': 680, 'La Casa Boo': 721, 'Dug Dug Dug': 500, 'Rainbow Hammer': 520,
+    'Ketupat Bros': 810, 'Dragon Cannelloni': 1100, 'Bloodmoon Hammer': 1170, Grabatron: 1300, 'Hydra Dragon Cannelloni': 1350, 'Jelly Moby': 1482,
+    'Bunny and Eggy': 1606, 'Pancake and Syrup': 1850, 'Tirillikalika Tirillikalako': 1850, 'Hydra Bunny': 2400, 'La Supreme Combinasion': 2450,
+    Kraken: 2500, 'Moby Bros': 2600, 'Digi Narwhal': 2700, 'Fishino Clownino': 3000, 'Kalika Bros': 4000, Griffin: 5000, Orchidox: 6000,
+    'Love Love Bear': 8500, Arcadragon: 12500, 'Elefanto Frigo': 13500, 'Skibidi Toilet': 16500, 'John Pork': 18500, Meowl: 20000,
+    'Strawberry Elephant': 50000,
+  };
+  assert.equal(Object.keys(priceList).length, 79);
+  for (const [n, v] of Object.entries(priceList)) assert.equal(value.get(n), v, n);
+  assert.equal(seed.items.length, 136);
+  assert.equal(value.size, 136, 'item names are unique');
+  // every item drops from at least one case
+  const inCases = new Set(seed.cases.flatMap((c) => c.items.map((e) => e.item)));
+  for (const i of seed.items) assert.ok(inCases.has(i.name), `${i.name} is in no case`);
 });
 
 test('upgrade chance formula', () => {

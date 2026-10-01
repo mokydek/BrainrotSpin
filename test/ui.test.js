@@ -274,6 +274,63 @@ test('admin: edit a case price from the panel and players see it', { skip }, asy
   await page.context().close();
 });
 
+test('admin: case picture upload shows on the case card, removal brings the chest back', { skip }, async () => {
+  const id = demo.bySlug.summer.id;
+  const { page, errors } = await open({ path: `/#/admin/cases/${id}` });
+  await page.waitForSelector('#caseForm #cImgRow');
+  assert.equal(await page.$('#cImgDel'), null, 'nothing to remove yet');
+  // unsaved edit in the form must survive the upload
+  await page.fill('#cPrice', '351');
+  const jpg = await page.evaluate(() => {
+    const c = document.createElement('canvas');
+    c.width = 1360;
+    c.height = 1157;
+    const g = c.getContext('2d');
+    g.fillStyle = '#1d6b3a';
+    g.fillRect(0, 0, c.width, c.height);
+    g.fillStyle = '#ffd23f';
+    g.fillRect(300, 250, 700, 600);
+    return c.toDataURL('image/jpeg', 0.9).split(',')[1];
+  });
+  await page.setInputFiles('#cImgFile', { name: 'summer.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(jpg, 'base64') });
+  await page.waitForSelector('#cImgDel');
+  await page.waitForSelector('#cPreview img.case-img');
+  assert.equal(await page.inputValue('#cPrice'), '351', 'form edits kept');
+  const adm = (await demo.app.get('/api/admin/cases', { user: ME })).body.cases.find((c) => c.id === id);
+  assert.match(adm.image, /^\/api\/img\/case\//);
+  assert.equal(adm.price, 350, 'price not saved by the upload');
+  // stored picture is downscaled to 512px
+  const size = await page.evaluate(async (src) => {
+    const im = new Image();
+    im.src = src;
+    await im.decode();
+    return [im.naturalWidth, im.naturalHeight];
+  }, await page.getAttribute('#cPreview img.case-img', 'src'));
+  assert.deepEqual(size, [512, 436]);
+
+  // players see the picture instead of the chest
+  await page.evaluate(() => (location.hash = '#/cases'));
+  await page.waitForSelector('.case-grid');
+  const card = page.locator(`.case-card[data-case="${id}"]`);
+  assert.equal(await card.locator('img.case-img').count(), 1);
+  assert.equal(await card.locator('svg.chest').count(), 0);
+  const box = await card.locator('img.case-img').boundingBox();
+  const cardBox = await card.boundingBox();
+  assert.ok(box.width > cardBox.width * 0.7 && box.width <= cardBox.width, `picture fills the card (${box.width} of ${cardBox.width})`);
+  assert.ok(await card.locator('img.case-img').evaluate((im) => im.complete && im.naturalWidth > 0), 'picture loaded');
+  // other cases keep the chest
+  assert.equal(await page.locator(`.case-card[data-case="${demo.bySlug.noob.id}"] svg.chest`).count(), 1);
+
+  // remove it again
+  await page.evaluate((x) => (location.hash = '#/admin/cases/' + x), id);
+  await page.waitForSelector('#cImgDel');
+  await page.click('#cImgDel');
+  await page.waitForSelector('#cPreview svg.chest');
+  assert.equal((await demo.app.get('/api/admin/cases', { user: ME })).body.cases.find((c) => c.id === id).image, null);
+  assert.deepEqual(errors, []);
+  await page.context().close();
+});
+
 test('non-admins have no admin tab and cannot open it', { skip }, async () => {
   const { page } = await open({ user: demo.others[1], path: '/#/admin/cases' });
   await page.waitForSelector('.case-grid');
@@ -303,12 +360,12 @@ test('website mode: login link works outside Telegram and is removed from the UR
 
 test('small phones (360px): no horizontal scrolling anywhere', { skip }, async () => {
   // the biggest possible top drop must still fit its card
-  const toilet = [...demo.ctx.game.catalog.items.values()].find((i) => i.name === 'Skibidi Toilet');
-  await demo.ctx.db.query("INSERT INTO bs_drops (user_id, item_id, value, kind) VALUES ($1, $2, $3, 'case')", [demo.others[9].id, toilet.id, toilet.value]);
+  const top = [...demo.ctx.game.catalog.items.values()].find((i) => i.name === 'Strawberry Elephant');
+  await demo.ctx.db.query("INSERT INTO bs_drops (user_id, item_id, value, kind) VALUES ($1, $2, $3, 'case')", [demo.others[9].id, top.id, top.value]);
   await demo.ctx.live.refreshTop();
   const { page } = await open({ width: 360, height: 740 });
   await page.waitForSelector('.case-grid');
-  assert.match(await page.textContent('.top24-val'), /16\s500/);
+  assert.match(await page.textContent('.top24-val'), /50\s000/);
   const fits = await page.evaluate(() => {
     const card = document.querySelector('.top24').getBoundingClientRect();
     const val = document.querySelector('.top24-val').getBoundingClientRect();
