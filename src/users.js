@@ -8,6 +8,31 @@ function cleanStr(v, max) {
 }
 
 export function createUsers({ db, settings, config }) {
+  // owner username -> Telegram id of the account that first used it (so a later
+  // holder of the same username doesn't become the main admin)
+  const pins = () => settings.get('_owner_pins') || {};
+
+  function isOwnerId(id) {
+    return config.ownerIds.includes(Number(id)) || Object.values(pins()).includes(Number(id));
+  }
+
+  async function claimOwner(u) {
+    const name = (u.username || '').toLowerCase();
+    if (!name || !config.ownerUsernames.includes(name)) return false;
+    const p = pins();
+    if (p[name] !== undefined) return p[name] === Number(u.id);
+    await settings.setInternal('_owner_pins', { ...p, [name]: Number(u.id) });
+    return true;
+  }
+
+  /** The main admin always stays an admin and is never banned. */
+  async function syncOwner(u) {
+    if (!u) return u;
+    const owner = isOwnerId(u.id) || (await claimOwner(u));
+    if (!owner || (u.is_admin && !u.is_banned)) return u;
+    return db.one('UPDATE bs_users SET is_admin = TRUE, is_banned = FALSE WHERE id = $1 RETURNING *', [u.id]);
+  }
+
   async function upsertFromTelegram(tgUser, { started = false } = {}) {
     const photo = typeof tgUser.photo_url === 'string' && /^https:\/\//.test(tgUser.photo_url) ? tgUser.photo_url : null;
     const u = await db.one(
@@ -38,12 +63,12 @@ export function createUsers({ db, settings, config }) {
     if (u.inserted && u.balance > 0) {
       await db.query("INSERT INTO bs_balance_log (user_id, delta, reason) VALUES ($1, $2, 'start_bonus')", [u.id, u.balance]);
     }
-    return u;
+    return syncOwner(u);
   }
 
   async function ensureUser(id) {
-    return db.one('SELECT * FROM bs_users WHERE id = $1', [id]);
+    return syncOwner(await db.one('SELECT * FROM bs_users WHERE id = $1', [id]));
   }
 
-  return { upsertFromTelegram, ensureUser };
+  return { upsertFromTelegram, ensureUser, isOwnerId };
 }
