@@ -1,10 +1,19 @@
 // Admin panel (loaded only for admins).
 
-const SECTIONS = ['overview', 'cases', 'items', 'users', 'promos', 'settings', 'broadcast'];
+const SECTIONS = ['overview', 'deposits', 'withdrawals', 'cases', 'items', 'users', 'promos', 'settings', 'broadcast'];
+const REQ_KIND = { deposits: 'deposit', withdrawals: 'withdraw' };
 const RARITIES = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic', 'secret'];
 
 let C = null; // context from app.js
 let bcastTimer = null;
+let reqTimer = null;
+let reqScope = 'open';
+let reqSeq = 0; // the latest list/card load wins
+
+function stopReqTimer() {
+  if (reqTimer) clearInterval(reqTimer);
+  reqTimer = null;
+}
 
 function h(...a) {
   return C.html(...a);
@@ -29,18 +38,25 @@ export function renderAdmin(view, route, ctx) {
     clearInterval(bcastTimer);
     bcastTimer = null;
   }
+  stopReqTimer();
   const sub = SECTIONS.includes(route.sub) ? route.sub : 'overview';
   view.onclick = null;
   C.render(
     view,
     h`<div class="adm">
-      <div class="adm-tabs">${SECTIONS.map((s) => h`<a class="chip ${s === sub ? 'on' : ''}" href="#/admin/${s}">${C.t('a.' + s)}</a>`)}</div>
+      <div class="adm-tabs">${SECTIONS.map(
+        (s) => h`<a class="chip ${s === sub ? 'on' : ''}" href="#/admin/${s}">${C.t('a.' + s)}${REQ_KIND[s] ? h`<i class="chip-n" data-cnt="${REQ_KIND[s]}"></i>` : ''}</a>`,
+      )}</div>
       <div id="admBody" class="adm-body"><div class="spinner"></div></div>
     </div>`,
   );
+  if (sub !== 'overview') C.$('.adm-tabs .chip.on')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  refreshCounts();
   const body = C.$('#admBody');
   const run = {
     overview: () => overview(body),
+    deposits: () => (route.id ? reqDetail(body, 'deposit', Number(route.id)) : reqList(body, 'deposit')),
+    withdrawals: () => (route.id ? reqDetail(body, 'withdraw', Number(route.id)) : reqList(body, 'withdraw')),
     cases: () => (route.id ? caseEditor(body, route.id) : casesList(body)),
     items: () => itemsList(body),
     users: () => (route.id ? userDetail(body, Number(route.id)) : usersList(body)),
@@ -614,6 +630,7 @@ const SETTING_FIELDS = [
   ['upgrade_min_chance', 'number'],
   ['upgrade_max_chance', 'number'],
   ['start_balance', 'number'],
+  ['stars_rate', 'number'],
   ['welcome_ru', 'textarea'],
   ['welcome_uk', 'textarea'],
   ['welcome_en', 'textarea'],
@@ -726,3 +743,268 @@ async function broadcast(body) {
   });
 }
 
+
+// ------------------------------------------------------------------ deposits & withdrawals
+const SECTION_OF = { deposit: 'deposits', withdraw: 'withdrawals' };
+const isOpen = (r) => r.method === 'brainrot' && (r.status === 'new' || r.status === 'active');
+
+function refreshCounts() {
+  C.API.get('/admin/requests/counts')
+    .then(({ counts }) => {
+      for (const el of C.$$('.chip-n')) el.textContent = counts[el.dataset.cnt] ? String(counts[el.dataset.cnt]) : '';
+    })
+    .catch(() => {});
+}
+
+function avatar(u) {
+  return h`<span class="avatar sm">${u.photo ? h`<img src="${u.photo}" alt="" referrerpolicy="no-referrer">` : (u.name || '?')[0].toUpperCase()}</span>`;
+}
+
+const statusBadge = (r) => h`<span class="badge st-${r.status}">${C.t('a.r.st.' + r.status)}</span>`;
+
+function reqRow(r) {
+  let sub;
+  if (r.method === 'stars') sub = h`<span class="emo">⭐</span>${C.fmt(r.stars)} → ${C.money(r.coins, 11)}`;
+  else if (r.kind === 'withdraw') {
+    sub = h`<span>${r.nick}</span><span class="req-minis">${r.items.slice(0, 4).map((i) => h`<span class="r-${i.rarity}">${C.art(i)}</span>`)}</span>${
+      r.items.length > 4 ? h`<span>+${r.items.length - 4}</span>` : ''
+    }${C.money(r.total, 11)}`;
+  } else sub = h`<span>${r.nick}</span>`;
+  const last = r.lastText || r.details;
+  return h`<a class="row req-row ${r.waiting ? 'wait' : ''}" href="#/admin/${SECTION_OF[r.kind]}/${r.id}" data-req="${r.id}">
+    ${avatar(r.user)}
+    <span class="row-main"><b>#${r.id} · ${r.user.name}</b><small>${sub}</small>${last ? h`<small class="req-last">${last}</small>` : ''}</span>
+    <span class="row-side">${statusBadge(r)}<small class="req-time">${C.fmtDateTime(r.updatedAt)}</small></span>
+  </a>`;
+}
+
+async function reqList(body, kind) {
+  stopReqTimer();
+  const my = ++reqSeq;
+  const load = () => C.API.get(`/admin/requests?kind=${kind}&scope=${reqScope}`);
+  const { requests } = await load();
+  if (!body.isConnected || my !== reqSeq) return;
+  const listHtml = (list) => (list.length ? h`<div class="list">${list.map(reqRow)}</div>` : h`<div class="empty-box"><p>${C.t('a.r.empty')}</p></div>`);
+  C.render(
+    body,
+    h`<div class="seg adm-seg">${['open', 'all'].map((s) => h`<button type="button" data-scope="${s}" class="${reqScope === s ? 'on' : ''}">${C.t('a.r.' + s)}</button>`)}</div>
+    <div id="reqList">${listHtml(requests)}</div>`,
+  );
+  body.querySelector('.adm-seg').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-scope]');
+    if (!b || b.dataset.scope === reqScope) return;
+    reqScope = b.dataset.scope;
+    reqList(body, kind).catch(adminError);
+  });
+  // new requests and answers show up without reloading
+  let sig = JSON.stringify(requests);
+  let busy = false;
+  reqTimer = setInterval(async () => {
+    if (!body.isConnected || !body.querySelector('#reqList') || my !== reqSeq) return stopReqTimer();
+    if (busy) return;
+    busy = true;
+    try {
+      const r = await load();
+      const next = JSON.stringify(r.requests);
+      if (next !== sig && body.querySelector('#reqList') && my === reqSeq) {
+        sig = next;
+        C.render(body.querySelector('#reqList'), listHtml(r.requests));
+        refreshCounts();
+      }
+    } catch {
+      /* try again later */
+    } finally {
+      busy = false;
+    }
+  }, 8000);
+}
+
+function sysText(m, r) {
+  const i = m.text.indexOf(':');
+  const k = i < 0 ? m.text : m.text.slice(0, i);
+  const arg = i < 0 ? '' : m.text.slice(i + 1);
+  if (k === 'created') return C.t('a.r.sys.created');
+  if (k === 'credit') return C.t('a.r.sys.credit', { n: C.fmt(Number(arg)) });
+  if (k === 'give') {
+    const it = r.items.find((x) => x.id === Number(arg)) || C.S.itemsById.get(Number(arg));
+    return C.t('a.r.sys.give', { name: it ? it.name : '#' + arg });
+  }
+  if (k === 'status') return C.t('a.r.sys.' + (arg === 'done' ? 'done' : 'rejected'));
+  return m.text;
+}
+
+function msgView(m, r) {
+  if (m.author === 'system') return h`<div class="msg sys">${sysText(m, r)} · ${C.fmtDateTime(m.at)}</div>`;
+  const mine = m.author === 'admin';
+  return h`<div class="msg ${mine ? 'admin' : 'user'}">${m.text}<small>${mine ? (m.adminName || C.t('a.admin')) + ' · ' : ''}${C.fmtDateTime(m.at)}${
+    mine && m.delivered === false ? h` · <b class="nd">⚠ ${C.t('a.r.notDelivered')}</b>` : ''
+  }</small></div>`;
+}
+
+const itemLine = (i) =>
+  h`<div class="row r-${i.rarity}"><span class="row-art">${C.art(i)}</span><span class="row-main"><b>${i.name}</b><small>${C.money(i.value, 11)}</small></span></div>`;
+
+let reqSig = '';
+let reqDrawn = 0; // bumps on every redraw of the card; a refresh that started before it is stale
+const chatSig = (d) => `${d.messages.length}:${d.messages.at(-1)?.id || 0}`;
+const cardSig = (d) => `${d.request.status}:${d.request.coins}:${d.request.items.length}:${d.request.user.balance}:${d.request.user.blockedBot}`;
+
+function drawReq(body, d, { keep = false } = {}) {
+  const r = d.request;
+  const u = r.user;
+  reqSig = cardSig(d) + '|' + chatSig(d);
+  reqDrawn++;
+  const draft = keep ? body.querySelector('#reqMsg')?.value || '' : '';
+  const amount = keep ? body.querySelector('#reqAmount')?.value || '' : '';
+  const active = keep ? document.activeElement : null;
+  const focused = active && (active.id === 'reqMsg' || active.id === 'reqAmount') ? active.id : null;
+  const caret = focused === 'reqMsg' ? [active.selectionStart, active.selectionEnd] : null;
+  const open = isOpen(r);
+  C.render(
+    body,
+    h`<div class="form req">
+      <div class="form-head"><a class="back" href="#/admin/${SECTION_OF[r.kind]}">‹</a><b>${C.t('a.r.' + r.kind, { id: r.id })}</b>${statusBadge(r)}</div>
+      <a class="row" href="#/admin/users/${u.id}">${avatar(u)}<span class="row-main"><b>${u.name}</b><small>${u.username ? '@' + u.username + ' · ' : ''}ID ${u.id}</small></span><span class="row-side">${C.money(u.balance, 12)}</span></a>
+      ${u.username ? h`<button type="button" class="btn small ghost req-tg" data-tg="https://t.me/${u.username}">${C.t('a.r.writeTg')}</button>` : ''}
+      ${u.blockedBot ? h`<div class="note bad">${C.t('a.r.blocked')}</div>` : ''}
+      ${r.nick ? h`<div class="kv"><span>${C.t('a.r.nick')}</span><b class="code" data-copy="${r.nick}">${r.nick}</b></div>` : ''}
+      ${r.method === 'stars' ? h`<div class="kv"><span>${C.t('a.r.stars')}</span><b class="money"><span class="emo">⭐</span>${C.fmt(r.stars)} → ${C.money(r.coins, 13)}</b></div>` : ''}
+      ${r.kind === 'deposit' && r.details ? h`<div class="req-field"><span>${C.t('a.r.details')}</span><div class="req-box">${r.details}</div></div>` : ''}
+      ${r.kind === 'withdraw'
+        ? h`<h4 class="sec-title">${C.t('a.r.items')} <span class="cnt">${r.items.length}</span></h4>
+           <div class="list">${r.items.map(itemLine)}</div>
+           <div class="kv"><span>${C.t('a.r.total')}</span><b>${C.money(r.total, 13)}</b></div>`
+        : ''}
+      ${r.kind === 'deposit' && r.method === 'brainrot' && r.coins ? h`<div class="kv"><span>${C.t('a.r.credited')}</span><b>${C.money(r.coins, 13)}</b></div>` : ''}
+      ${r.kind === 'deposit' && r.items.length ? h`<h4 class="sec-title">${C.t('a.r.given')} <span class="cnt">${r.items.length}</span></h4><div class="list">${r.items.map(itemLine)}</div>` : ''}
+      ${open
+        ? h`<div class="req-acts">
+            ${r.kind === 'deposit'
+              ? h`<div class="bal-row"><input class="input" id="reqAmount" type="number" min="1" step="1" inputmode="numeric" placeholder="${C.t('a.amount')}" value="${amount}"><button type="button" class="btn small" data-ra="credit">${C.t('a.r.credit')}</button><button type="button" class="btn small ghost" data-ra="give">${C.t('a.r.give')}</button></div>`
+              : ''}
+            <div class="row2"><button type="button" class="btn ghost danger" data-ra="rejected">${C.t('a.r.reject')}</button><button type="button" class="btn primary" data-ra="done">${C.t('a.r.done')}</button></div>
+          </div>`
+        : ''}
+      <h4 class="sec-title">${C.t('a.r.chat')}</h4>
+      <div class="chat" id="reqChat">${d.messages.map((m) => msgView(m, r))}</div>
+      <form class="chat-form" id="reqForm" autocomplete="off">
+        <textarea class="input" id="reqMsg" rows="2" maxlength="2000" placeholder="${C.t('a.r.msgPh')}">${draft}</textarea>
+        <button class="btn primary" type="submit">${C.t('a.r.send')}</button>
+      </form>
+    </div>`,
+  );
+  if (focused) {
+    const el = body.querySelector('#' + focused);
+    el?.focus();
+    if (caret && el) el.setSelectionRange(caret[0], caret[1]);
+  }
+
+  const after = async (res, { scroll = false } = {}) => {
+    if (!body.isConnected) return;
+    drawReq(body, res);
+    refreshCounts();
+    if (scroll) body.querySelector('#reqForm')?.scrollIntoView({ block: 'center' });
+  };
+
+  body.querySelector('#reqForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const ta = body.querySelector('#reqMsg');
+    const text = ta.value.trim();
+    if (!text) return;
+    const btn = e.target.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      const res = await C.API.post(`/admin/requests/${r.id}/messages`, { text });
+      if (!res.delivered) C.toast(C.t('a.r.notDeliveredToast'), 'error');
+      await after(res, { scroll: true });
+    } catch (err) {
+      btn.disabled = false;
+      adminError(err);
+    }
+  });
+
+  body.onclick = async (e) => {
+    const tgBtn = e.target.closest('[data-tg]');
+    if (tgBtn) return C.openTg(tgBtn.dataset.tg);
+    const copy = e.target.closest('[data-copy]');
+    if (copy) {
+      await navigator.clipboard?.writeText(copy.dataset.copy).catch(() => {});
+      return C.toast(C.t('a.copied'), 'ok');
+    }
+    const ra = e.target.closest('[data-ra]');
+    if (!ra || ra.disabled) return;
+    const act = ra.dataset.ra;
+    try {
+      if (act === 'credit') {
+        const input = body.querySelector('#reqAmount');
+        const n = Number(input.value);
+        if (!Number.isInteger(n) || n < 1) {
+          input.focus();
+          return adminError({ code: 'bad_field', data: { field: C.t('a.amount') } });
+        }
+        if (!(await C.confirmModal(C.t('a.r.creditConfirm', { n: C.fmt(n), u: u.name })))) return;
+        const res = await C.API.post(`/admin/requests/${r.id}/credit`, { amount: n });
+        body.querySelector('#reqAmount').value = '';
+        C.toast(C.t('a.saved'), 'ok');
+        if (u.id === C.S.me.id) await C.reloadMe();
+        return after(res);
+      }
+      if (act === 'give') {
+        return pickItem(C.S.items, async (it) => {
+          try {
+            const res = await C.API.post(`/admin/requests/${r.id}/give`, { itemId: it.id });
+            C.toast(C.t('a.saved'), 'ok');
+            await after(res);
+          } catch (err) {
+            adminError(err);
+          }
+        });
+      }
+      if (act === 'done' || act === 'rejected') {
+        const q = act === 'done' ? 'a.r.doneConfirm' : r.kind === 'withdraw' ? 'a.r.rejectConfirmW' : 'a.r.rejectConfirm';
+        if (!(await C.confirmModal(C.t(q, { id: r.id })))) return;
+        const res = await C.API.post(`/admin/requests/${r.id}/status`, { status: act });
+        C.toast(C.t('a.saved'), 'ok');
+        return after(res);
+      }
+    } catch (err) {
+      adminError(err);
+    }
+  };
+}
+
+async function reqDetail(body, kind, id) {
+  stopReqTimer();
+  const my = ++reqSeq;
+  if (!Number.isSafeInteger(id) || id <= 0) return C.go(`#/admin/${SECTION_OF[kind]}`);
+  const d = await C.API.get(`/admin/requests/${id}`);
+  if (!body.isConnected || my !== reqSeq) return;
+  if (d.request.kind !== kind) return C.go(`#/admin/${SECTION_OF[d.request.kind]}/${id}`);
+  drawReq(body, d);
+  // the player's answers arrive through the bot — show them while the card is open
+  let busy = false;
+  reqTimer = setInterval(async () => {
+    if (!body.isConnected || !body.querySelector('#reqChat') || my !== reqSeq) return stopReqTimer();
+    if (busy) return;
+    busy = true;
+    const drawn = reqDrawn;
+    try {
+      const n = await C.API.get(`/admin/requests/${id}`);
+      const chat = body.querySelector('#reqChat');
+      // an action redrew the card while this refresh was on its way: its data is older
+      if (!body.isConnected || !chat || n.request.id !== id || drawn !== reqDrawn || my !== reqSeq) return;
+      const next = cardSig(n) + '|' + chatSig(n);
+      if (next === reqSig) return;
+      if (reqSig.split('|')[0] === cardSig(n)) {
+        // only new messages: update the conversation, leave the inputs alone
+        reqSig = next;
+        C.render(chat, h`${n.messages.map((m) => msgView(m, n.request))}`);
+      } else drawReq(body, n, { keep: true });
+      refreshCounts();
+    } catch {
+      /* try again later */
+    } finally {
+      busy = false;
+    }
+  }, 5000);
+}

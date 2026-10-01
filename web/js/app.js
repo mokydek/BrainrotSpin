@@ -1,5 +1,5 @@
 import { tg, html, raw, render, $, $$, sleep, store, haptic, coin, chest, itemArt, initials, countdown, rgba } from './util.js';
-import { t, setLang, lang, fmt, fmtDate, LANGS } from './i18n.js';
+import { t, setLang, lang, fmt, fmtDate, fmtDateTime, LANGS } from './i18n.js';
 import * as API from './api.js';
 import { startBubbles, setBubbleTint } from './bubbles.js';
 
@@ -40,6 +40,8 @@ const S = {
   inventory: [],
   bot: null,
   links: {},
+  topup: { starsRate: 1 },
+  mode: null, // 'tg' inside Telegram, 'web' on the website
   theme: 'sunset',
   busy: false,
   up: { sel: new Set(), target: null, tab: 'inv' },
@@ -205,7 +207,7 @@ function shell() {
         </div>
       </div>
       <div class="top-actions">
-        <button class="bal" data-act="promo" aria-label="${t('promo')}">${coin(18)}<b id="bal"></b><span class="plus">+</span></button>
+        <button class="bal" data-act="topup" aria-label="${t('topup')}">${coin(18)}<b id="bal"></b><span class="plus">+</span></button>
         <button class="icon-btn lang-btn" data-act="lang" id="langBtn" aria-label="${t('language')}"></button>
         <button class="icon-btn" data-act="theme" id="themeBtn" aria-label="${t('theme')}">${raw(ICON.palette)}</button>
       </div>
@@ -899,7 +901,9 @@ function viewProfile(view) {
     </div>
     <div class="inv-head">
       <h3 class="sec-title">${t('inventory')} <span class="cnt">${S.inventory.length}</span>${S.inventory.length ? html` <span class="inv-sum">${money(invValue, 13)}</span>` : ''}</h3>
-      ${S.inventory.length ? html`<button class="btn small ghost" data-act="sell-all">${t('sellAll')}</button>` : ''}
+      ${S.inventory.length
+        ? html`<div class="inv-btns"><button class="btn small" data-act="withdraw">${t('withdraw')}</button><button class="btn small ghost" data-act="sell-all">${t('sellAll')}</button></div>`
+        : ''}
     </div>
     ${S.inventory.length
       ? html`<div class="grid items">${S.inventory.map(
@@ -1005,6 +1009,231 @@ function openPromo() {
   });
 }
 
+// ------------------------------------------------------------------ top-up & withdrawal
+const STARS_MAX = 10000;
+const starsCoins = (n) => Math.floor(n * (S.topup.starsRate || 0) + 1e-9);
+const tuHead = (title) =>
+  html`<div class="tu-head"><button type="button" class="back" data-act="tu-menu" aria-label="${t('back')}">${raw(ICON.back)}</button><div class="sheet-title">${title}</div><span></span></div>`;
+
+let tuSheet = null;
+function tuBox() {
+  return tuSheet && tuSheet.isConnected ? tuSheet.querySelector('#topup') : null;
+}
+
+function openTopup() {
+  tuSheet = openModal(html`<div class="topup" id="topup"></div>`, { onClose: () => (tuSheet = null) });
+  topupMenu();
+}
+
+function topupMenu() {
+  const box = tuBox();
+  if (!box) return;
+  render(
+    box,
+    html`<div class="sheet-title">${t('topup')}</div>
+    <div class="tu-opts">
+      <button type="button" class="tu-opt stars" data-act="tu-stars"><span class="tu-ico emo">⭐</span><b>${t('tu.stars')}</b></button>
+      <button type="button" class="tu-opt brainrots" data-act="tu-brainrots"><span class="tu-ico emo">🧠</span><b>${t('tu.brainrots')}</b></button>
+    </div>
+    <button type="button" class="btn ghost tu-promo" data-act="promo">${t('promo')}</button>`,
+  );
+}
+
+function topupStars() {
+  const box = tuBox();
+  if (!box) return;
+  const def = 100;
+  render(
+    box,
+    html`${tuHead(t('tu.stars'))}
+    <form class="form tu-form" id="starsForm" autocomplete="off">
+      <label>${t('starsAmount')}<span class="stars-in"><span class="emo">⭐</span><input class="input" id="starsInput" type="number" inputmode="numeric" min="1" max="${STARS_MAX}" step="1" value="${def}"></span></label>
+      <div class="tu-get"><span>=</span><span id="starsGet">${money(starsCoins(def), 20)}</span></div>
+      <div id="starsPayRow"><button class="btn primary big" type="submit" id="starsPay">${t('pay')} <span class="emo">⭐</span><b id="starsN">${fmt(def)}</b></button></div>
+    </form>`,
+  );
+  const input = box.querySelector('#starsInput');
+  const value = () => {
+    const n = Number(input.value);
+    return Number.isInteger(n) && n >= 1 && n <= STARS_MAX && starsCoins(n) >= 1 ? n : 0;
+  };
+  const payBtn = () =>
+    html`<button class="btn primary big" type="submit" id="starsPay">${t('pay')} <span class="emo">⭐</span><b id="starsN">${fmt(def)}</b></button>`;
+  input.addEventListener('input', () => {
+    const n = value();
+    render(box.querySelector('#starsGet'), money(n ? starsCoins(n) : 0, 20));
+    // the amount changed after the invoice link was made: that link is for the old amount
+    if (box.querySelector('#starsLink')) render(box.querySelector('#starsPayRow'), payBtn());
+    box.querySelector('#starsN').textContent = n ? fmt(n) : '—';
+    box.querySelector('#starsPay').disabled = !n;
+  });
+  box.querySelector('#starsForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const n = value();
+    if (!n) return showError({ code: 'bad_stars' });
+    payStars(n, box);
+  });
+}
+
+async function payStars(stars, box) {
+  const btn = box.querySelector('#starsPay');
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  haptic.impact('light');
+  let r;
+  try {
+    r = await API.post('/topup/stars', { stars });
+  } catch (e) {
+    btn.disabled = false;
+    return showError(e);
+  }
+  if (S.mode === 'tg' && tg && typeof tg.openInvoice === 'function') {
+    tg.openInvoice(r.link, (status) => {
+      if (btn.isConnected) btn.disabled = false;
+      if (status === 'paid') {
+        closeModal();
+        awaitCredit(r.invoice, 30);
+      } else if (status === 'failed') showError({ code: 'pay_failed' });
+    });
+    return;
+  }
+  // Website: the invoice opens in Telegram; a real link avoids popup blockers.
+  render(
+    box.querySelector('#starsPayRow'),
+    html`<a class="btn primary big" id="starsLink" href="${r.link}" target="_blank" rel="noopener">${t('pay')} <span class="emo">⭐</span><b>${fmt(stars)}</b></a>`,
+  );
+  box.querySelector('#starsLink').addEventListener('click', () => {
+    closeModal();
+    awaitCredit(r.invoice, 300);
+  });
+}
+
+/** Polls the invoice until the bot has credited the Stars payment. */
+let creditWatch = 0;
+async function awaitCredit(invoice, seconds) {
+  const my = ++creditWatch;
+  const until = Date.now() + seconds * 1000;
+  while (Date.now() < until && my === creditWatch) {
+    await sleep(1500);
+    try {
+      const r = await API.get('/topup/stars/' + encodeURIComponent(invoice));
+      if (r.paid) {
+        setBalance(r.balance);
+        haptic.notify('success');
+        toast(t('starsOk', { n: fmt(r.coins) }), 'ok');
+        const v = route().view;
+        if (!S.busy && (v === 'case' || v === 'profile')) renderView();
+        return;
+      }
+    } catch {
+      /* try again */
+    }
+  }
+}
+
+function topupBrainrots() {
+  const box = tuBox();
+  if (!box) return;
+  render(
+    box,
+    html`${tuHead(t('tu.brainrots'))}
+    <form class="form tu-form" id="depForm" autocomplete="off">
+      <label>${t('nick')}<input class="input" name="nick" maxlength="32" value="${S.me.nick || ''}" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+      <label>${t('depWhat')}<textarea class="input" name="details" rows="3" maxlength="500"></textarea></label>
+      <button class="btn primary big" type="submit">${t('sendReq')}</button>
+    </form>`,
+  );
+  const form = box.querySelector('#depForm');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = new FormData(form);
+    const nick = String(f.get('nick') || '').trim();
+    const details = String(f.get('details') || '').trim();
+    if (nick.replace(/^@+/, '').length < 3) return showError({ code: 'bad_nick' });
+    if (details.length < 2) return showError({ code: 'bad_details' });
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      const r = await API.post('/requests/deposit', { nick, details });
+      S.me.nick = r.request.nick;
+      closeModal();
+      haptic.notify('success');
+      toast(t('reqSent', { id: r.request.id }), 'ok');
+    } catch (err) {
+      btn.disabled = false;
+      showError(err);
+    }
+  });
+}
+
+function openWithdraw() {
+  if (!S.inventory.length) return;
+  const sel = new Set();
+  const sheet = openModal(
+    html`<div class="wd">
+      <div class="sheet-title">${t('wdTitle')}</div>
+      <form class="form tu-form" id="wdForm" autocomplete="off">
+        <label>${t('nick')}<input class="input" name="nick" maxlength="32" value="${S.me.nick || ''}" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+        <div class="fld-lbl">${t('wdPick')}</div>
+        <div class="grid items" id="wdGrid">${S.inventory.map(
+          (inv) => html`<button type="button" class="item pick r-${inv.item.rarity}" data-wd="${inv.invId}">
+            <div class="pick-mark">${raw(ICON.check)}</div>
+            <div class="item-art">${art(inv.item)}</div>
+            <div class="item-name">${inv.item.name}</div>
+            <div class="item-val">${coin(12)}${fmt(inv.item.value)}</div>
+          </button>`,
+        )}</div>
+        <div class="wd-foot"><button class="btn primary big" type="submit" id="wdBtn" disabled>${t('withdraw')}</button></div>
+      </form>
+    </div>`,
+    { cls: 'tall' },
+  );
+  const btn = sheet.querySelector('#wdBtn');
+  const update = () => {
+    const total = S.inventory.filter((i) => sel.has(i.invId)).reduce((s, i) => s + i.item.value, 0);
+    render(btn, sel.size ? html`${t('withdraw')} ${money(total, 18)}` : html`${t('withdraw')}`);
+    btn.disabled = !sel.size;
+  };
+  sheet.querySelector('#wdGrid').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-wd]');
+    if (!b) return;
+    const id = Number(b.dataset.wd);
+    if (sel.has(id)) sel.delete(id);
+    else if (sel.size >= 100) return;
+    else sel.add(id);
+    b.classList.toggle('sel', sel.has(id));
+    haptic.tick();
+    update();
+  });
+  const form = sheet.querySelector('#wdForm');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nick = String(new FormData(form).get('nick') || '').trim();
+    if (nick.replace(/^@+/, '').length < 3) return showError({ code: 'bad_nick' });
+    if (!sel.size) return;
+    btn.disabled = true;
+    try {
+      const r = await API.post('/requests/withdraw', { nick, ids: [...sel] });
+      const gone = new Set(r.removed);
+      S.inventory = S.inventory.filter((i) => !gone.has(i.invId));
+      for (const id of gone) S.up.sel.delete(id);
+      S.me.nick = r.request.nick;
+      closeModal();
+      haptic.notify('success');
+      toast(t('reqSent', { id: r.request.id }), 'ok');
+      if (route().view === 'profile') viewProfile($('#view'));
+    } catch (err) {
+      btn.disabled = false;
+      showError(err);
+      if (err.code === 'items_missing') {
+        await refreshInventory();
+        closeModal();
+        if (route().view === 'profile') viewProfile($('#view'));
+      }
+    }
+  });
+}
+
 // ------------------------------------------------------------------ admin context
 function adminCtx() {
   return {
@@ -1012,6 +1241,7 @@ function adminCtx() {
     API,
     t,
     fmt,
+    fmtDateTime,
     html,
     raw,
     render,
@@ -1029,12 +1259,17 @@ function adminCtx() {
     confirmModal,
     go,
     fmtChance,
+    openTg(url) {
+      if (tg && tg.openTelegramLink && S.mode === 'tg' && /^https:\/\/t\.me\//.test(url)) tg.openTelegramLink(url);
+      else window.open(url, '_blank', 'noopener');
+    },
     async reloadCatalog() {
       const r = await API.get('/catalog');
       S.cases = r.cases;
       S.items = r.items;
       S.itemsById = new Map(r.items.map((i) => [i.id, i]));
       S.upgrade = r.upgrade;
+      if (r.topup) S.topup = r.topup;
     },
     async reloadMe() {
       await refreshMe();
@@ -1051,6 +1286,11 @@ const actions = {
     else go('#/cases');
   },
   promo: () => openPromo(),
+  topup: () => openTopup(),
+  'tu-menu': () => topupMenu(),
+  'tu-stars': () => topupStars(),
+  'tu-brainrots': () => topupBrainrots(),
+  withdraw: () => openWithdraw(),
   lang: (el) => openLang(el),
   theme: (el) => openTheme(el),
   open: (el) => openCase(Number(el.dataset.id)),
@@ -1168,6 +1408,19 @@ function afterBusy() {
 }
 
 // ------------------------------------------------------------------ boot
+/** ?go=admin/deposits/12 (buttons in bot notifications) opens that screen. */
+function openFromLink() {
+  try {
+    const u = new URL(location.href);
+    const go = u.searchParams.get('go');
+    if (go === null) return;
+    u.searchParams.delete('go');
+    const hash = /^[a-z0-9/_-]{1,80}$/i.test(go) ? '#/' + go : u.hash;
+    history.replaceState(null, '', u.pathname + u.search + hash);
+  } catch {
+    /* ignore malformed URLs */
+  }
+}
 function splash(noteKey) {
   render(
     $('#app'),
@@ -1211,6 +1464,7 @@ function applyBootstrap(b) {
   S.inventory = b.inventory;
   S.bot = b.bot;
   S.links = b.links || {};
+  if (b.topup) S.topup = b.topup;
   if (b.me.lang && b.me.lang !== lang() && !store.getItem('bs_lang')) setLang(b.me.lang);
   if (b.me.theme && !store.getItem('bs_theme')) applyTheme(b.me.theme);
 }
@@ -1230,6 +1484,7 @@ async function boot() {
   }
   splash();
   const mode = API.initAuth();
+  S.mode = mode;
   if (!mode) return showNoAuth();
   const wakeTimer = setTimeout(() => {
     const n = $('#splashNote');
@@ -1258,6 +1513,7 @@ async function boot() {
     );
     return;
   }
+  openFromLink();
   shell();
   renderView();
   const live = API.stream({
