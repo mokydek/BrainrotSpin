@@ -546,6 +546,31 @@ async function usersList(body) {
   });
 }
 
+/** How a brainrot got into the player's inventory. */
+function itemSource(f) {
+  const lang = document.documentElement.lang || 'ru';
+  const caseName = f.case ? f.case.name[lang] || f.case.name.ru : '';
+  const saysCase = /кейс|case/i.test(caseName); // «Драгон кейс» needs no «Кейс» in front
+  switch (f.type) {
+    case 'case':
+      return caseName ? (saysCase ? caseName : C.t('a.src.case', { name: caseName })) : C.t('a.src.caseAny');
+    case 'free':
+      return caseName ? (saysCase ? caseName : C.t('a.src.free', { name: caseName })) : C.t('a.src.freeAny');
+    case 'upgrade':
+      return f.upgrade
+        ? h`${C.t('a.src.upgrade')} · ${C.t('a.src.chance', { c: C.fmt(f.upgrade.chance) })} · ${C.t('a.src.bet')} ${C.money(f.upgrade.bet, 11)}`
+        : C.t('a.src.upgrade');
+    case 'admin':
+      return f.admin ? C.t('a.src.adminName', { name: f.admin.name }) : C.t('a.src.admin');
+    case 'deposit':
+      return f.requestId ? h`<a class="src-link" href="#/admin/deposits/${f.requestId}">${C.t('a.r.deposit', { id: f.requestId })}</a>` : C.t('a.src.deposit');
+    case 'refund':
+      return f.requestId ? h`<a class="src-link" href="#/admin/withdrawals/${f.requestId}">${C.t('a.src.refund', { id: f.requestId })}</a>` : C.t('a.src.refundAny');
+    default:
+      return f.type;
+  }
+}
+
 async function userDetail(body, id) {
   const d = await C.API.get(`/admin/users/${id}`);
   if (!body.isConnected) return;
@@ -582,7 +607,7 @@ async function userDetail(body, id) {
       </div>
       <h4 class="sec-title">${C.t('inventory')} <span class="cnt">${d.inventory.length}</span></h4>
       <div class="list">${d.inventory.map(
-        (inv) => h`<div class="row r-${inv.item.rarity}"><span class="row-art">${C.art(inv.item)}</span><span class="row-main"><b>${inv.item.name}</b><small>${C.money(inv.item.value, 11)}</small></span><button class="icon-btn small" data-inv="${inv.invId}">×</button></div>`,
+        (inv) => h`<div class="row r-${inv.item.rarity}" data-src="${inv.from.type}"><span class="row-art">${C.art(inv.item)}</span><span class="row-main"><b>${inv.item.name}</b><small>${C.money(inv.item.value, 11)}</small><small class="inv-src">${itemSource(inv.from)} · ${C.fmtDateTime(inv.at)}</small></span><button class="icon-btn small" data-inv="${inv.invId}">×</button></div>`,
       )}</div>
       ${d.log.length
         ? h`<h4 class="sec-title">${C.t('a.log')}</h4><div class="list">${d.log.map(
