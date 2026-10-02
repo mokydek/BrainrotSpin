@@ -749,6 +749,7 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .kv span { color: var(--muted); }
 .bal-row { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; }
 .bal-row .input { height: 38px; }
+.bal-row.two { grid-template-columns: 1fr auto; }
 .img-row { display: flex; align-items: center; gap: 8px; }
 .img-prev { width: 56px; height: 56px; border-radius: 12px; display: grid; place-items: center; border: 1px solid var(--rcl); background: var(--card); }
 .img-prev .emo { font-size: 34px; }
