@@ -729,6 +729,7 @@ const SETTING_FIELDS = [
   ['upgrade_edge', 'number'],
   ['upgrade_min_chance', 'number'],
   ['upgrade_max_chance', 'number'],
+  ['upgrade_luck', 'number'],
   ['start_balance', 'number'],
   ['stars_rate', 'number'],
   ['welcome_ru', 'textarea'],

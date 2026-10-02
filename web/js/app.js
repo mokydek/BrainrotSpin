@@ -33,7 +33,7 @@ const S = {
   items: [],
   itemsById: new Map(),
   withdrawIds: null, // brainrots that can be withdrawn; others are exchanged for one of them (null: server doesn't say)
-  upgrade: { edge: 10, minChance: 1, maxChance: 80 },
+  upgrade: { edge: 10, minChance: 1, maxChance: 80, luck: 1 },
   free: null,
   feed: [],
   top24: null,
@@ -799,10 +799,11 @@ async function doShare() {
 }
 
 // ------------------------------------------------------------------ upgrader
+/** Same formula as upgradeChance() in src/game.js: the shown chance is the real one. */
 function upChance(bet, target) {
   if (!(bet > 0) || !(target > 0)) return 0;
   const raw = (bet / target) * (100 - S.upgrade.edge);
-  return Math.min(S.upgrade.maxChance, Math.floor(raw * 100) / 100);
+  return Math.floor((Math.min(S.upgrade.maxChance, raw) / (S.upgrade.luck || 1)) * 100) / 100;
 }
 
 function upBet() {
@@ -946,7 +947,7 @@ function updateUpgrade() {
 
 const UP_PCTS = [75, 50, 30];
 const upRangeMin = () => Math.max(1, Math.ceil(S.upgrade.minChance));
-const upRangeMax = () => Math.max(upRangeMin(), Math.floor(S.upgrade.maxChance));
+const upRangeMax = () => Math.max(upRangeMin(), Math.floor(S.upgrade.maxChance / (S.upgrade.luck || 1)));
 
 /** Choose the target whose chance is the closest to `pct` (buttons and the slider). */
 function setUpPct(pct, { quiet = false } = {}) {
@@ -980,7 +981,8 @@ async function doUpgrade() {
   $('#upRange').disabled = true;
   haptic.impact('medium');
   try {
-    const res = await API.post('/upgrade', { ids, target });
+    const tItem = S.itemsById.get(target);
+    const res = await API.post('/upgrade', { ids, target, chance: upChance(upBet(), tItem ? tItem.value : 0) });
     const ptr = $('#gPtr');
     const angle = 360 * 6 + (res.roll / 100) * 360;
     ptr.style.transition = 'none';
@@ -1021,6 +1023,14 @@ async function doUpgrade() {
   } catch (e) {
     showError(e);
     if (e.code === 'items_missing') await refreshInventory();
+    if (e.code === 'chance_changed') {
+      // settings or prices changed since the app loaded: show the current chance before a new try
+      await reloadCatalog().catch(() => {});
+      if (route().view === 'upgrade') {
+        S.busy = false;
+        viewUpgrade($('#view'));
+      }
+    }
   } finally {
     S.busy = false;
     if (!afterBusy()) {
@@ -1030,6 +1040,18 @@ async function doUpgrade() {
       if (rg) rg.disabled = !upBet();
     }
   }
+}
+
+/** Cases, items and the upgrader / top-up settings as they are on the server now. */
+async function reloadCatalog() {
+  const r = await API.get('/catalog');
+  S.cases = r.cases;
+  S.categories = r.categories || [];
+  if (r.withdrawIds) S.withdrawIds = r.withdrawIds;
+  S.items = r.items;
+  S.itemsById = new Map(r.items.map((i) => [i.id, i]));
+  S.upgrade = r.upgrade;
+  if (r.topup) S.topup = r.topup;
 }
 
 // ------------------------------------------------------------------ profile
@@ -1542,16 +1564,7 @@ function adminCtx() {
       if (tg && tg.openTelegramLink && S.mode === 'tg' && /^https:\/\/t\.me\//.test(url)) tg.openTelegramLink(url);
       else window.open(url, '_blank', 'noopener');
     },
-    async reloadCatalog() {
-      const r = await API.get('/catalog');
-      S.cases = r.cases;
-      S.categories = r.categories || [];
-      if (r.withdrawIds) S.withdrawIds = r.withdrawIds;
-      S.items = r.items;
-      S.itemsById = new Map(r.items.map((i) => [i.id, i]));
-      S.upgrade = r.upgrade;
-      if (r.topup) S.topup = r.topup;
-    },
+    reloadCatalog,
     async reloadMe() {
       await refreshMe();
     },
