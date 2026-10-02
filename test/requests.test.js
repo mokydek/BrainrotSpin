@@ -476,3 +476,48 @@ test('admin tabs: in progress / done / declined show only their own requests', a
   }
   assert.equal((await app.get('/api/admin/requests?kind=deposit&scope=bogus', { user: admin })).status, 400);
 });
+
+test('deposit by picked brainrots: validated, merged, shown to the player and the admins', async () => {
+  const u = { id: 1050, first_name: 'Erin', username: 'erin', language_code: 'ru' };
+  await app.post('/api/bootstrap', { user: u });
+  await app.message(u, '/start');
+  await freshWindow();
+  const id = (n) => itemByName(n).id;
+  const dep = (offer) => app.post('/api/requests/deposit', { user: u, body: { nick: 'ErinRBX', offer } });
+  for (const bad of [[], 'x', [{ itemId: 999999, count: 1 }], [{ itemId: id('Cerberus'), count: 0 }], [{ itemId: id('Cerberus'), count: 100 }], [{ itemId: id('Cerberus'), count: 1.5 }]]) {
+    const r = await dep(bad);
+    assert.equal(r.body.error, 'bad_offer', JSON.stringify(bad));
+  }
+  const many = [...app.ctx.game.catalog.items.values()].filter((i) => i.enabled).slice(0, 21).map((i) => ({ itemId: i.id, count: 1 }));
+  assert.equal((await dep(many)).body.error, 'bad_offer', 'at most 20 different brainrots');
+  // a switched-off brainrot can't be picked
+  const off = itemByName('Tim Cheese');
+  await app.ctx.db.query('UPDATE bs_items SET enabled = FALSE WHERE id = $1', [off.id]);
+  await app.ctx.game.reloadCatalog();
+  assert.equal((await dep([{ itemId: off.id, count: 1 }])).body.error, 'bad_offer');
+  await app.ctx.db.query('UPDATE bs_items SET enabled = TRUE WHERE id = $1', [off.id]);
+  await app.ctx.game.reloadCatalog();
+  assert.equal(await app.ctx.db.one('SELECT count(*)::int AS n FROM bs_requests WHERE user_id = $1', [u.id]).then((r) => r.n), 0, 'nothing saved');
+
+  await freshWindow();
+  app.tg.reset();
+  // the same brainrot twice is merged; count defaults to 1
+  const r = await dep([{ itemId: id('Cerberus'), count: 2 }, { itemId: id('Tralalero Tralala') }, { itemId: id('Cerberus'), count: 1 }]);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const req = r.body.request;
+  assert.deepEqual(req.offer.map((e) => [e.name, e.count]), [['Cerberus', 3], ['Tralalero Tralala', 1]]);
+  assert.equal(req.offerTotal, itemByName('Cerberus').value * 3 + itemByName('Tralalero Tralala').value);
+  assert.ok(req.offer.every((e) => e.rarity && e.emoji && e.value > 0));
+  assert.equal(req.details, 'Cerberus ×3, Tralalero Tralala');
+  // the player and the admins see the list in the bot
+  assert.match(lastSent(u.id).text, /Что пополняешь: Cerberus ×3, Tralalero Tralala/);
+  assert.match(lastSent(admin.id).text, /📝 Cerberus ×3, Tralalero Tralala/);
+  // admin card and list
+  const d = (await app.get(`/api/admin/requests/${req.id}`, { user: admin })).body.request;
+  assert.deepEqual(d.offer, req.offer);
+  const list = (await app.get('/api/admin/requests?kind=deposit', { user: admin })).body.requests;
+  assert.equal(list.find((x) => x.id === req.id).offerTotal, req.offerTotal);
+  // older requests (free text) still show as they were
+  const all = (await app.get('/api/admin/requests?kind=deposit&scope=all', { user: admin })).body.requests;
+  assert.equal(all.find((x) => x.id === depId).offer, null);
+});
