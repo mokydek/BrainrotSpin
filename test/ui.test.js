@@ -1260,6 +1260,66 @@ test('admin: a regular admin edits case odds; the upgrader settings only the mai
   assert.deepEqual(loot(), before);
 });
 
+test('main admin: bad luck for one account from the player card; that player sees and gets the lower chance', { skip }, async () => {
+  const boss = { id: 7001, first_name: 'Босс', username: 'owner_ui', language_code: 'ru' };
+  await demo.app.post('/api/bootstrap', { user: boss });
+  const p = demo.others[4];
+  await demo.app.post('/api/bootstrap', { user: p });
+  const luckOf = async () => Number((await demo.ctx.db.one('SELECT upgrade_luck FROM bs_users WHERE id = $1', [p.id])).upgrade_luck);
+  // a regular admin: no such control
+  {
+    const { page, errors } = await open({ path: `/#/admin/users/${p.id}` });
+    await page.waitForSelector('[data-flag="is_banned"]');
+    assert.equal(await page.locator('#uLuck, #uLuckIn, [data-luck]').count(), 0);
+    assert.ok(!(await page.content()).includes('Невезение аккаунта'));
+    assert.deepEqual(errors, []);
+    await page.context().close();
+  }
+  // the main admin sets it in the player card
+  {
+    const { page, errors } = await open({ user: boss, path: `/#/admin/users/${p.id}` });
+    await page.waitForSelector('#uLuckIn');
+    assert.equal(await page.textContent('.kv:has(#uLuck) span'), 'Невезение аккаунта: шанс в апгрейдере ниже ещё в N раз');
+    assert.equal(await page.textContent('#uLuck'), '×1');
+    assert.equal(await page.inputValue('#uLuckIn'), '1');
+    await page.fill('#uLuckIn', '2');
+    await page.click('[data-luck]');
+    await page.waitForSelector('.toast.ok');
+    await page.waitForFunction(() => document.querySelector('#uLuck')?.textContent === '×2');
+    assert.equal(await page.inputValue('#uLuckIn'), '2');
+    assert.equal(await luckOf(), 2);
+    // out of range: refused, nothing changes
+    await page.waitForSelector('.toast.ok', { state: 'detached', timeout: 6000 });
+    await page.fill('#uLuckIn', '50');
+    await page.click('[data-luck]');
+    await page.waitForSelector('.toast.error');
+    assert.equal(await luckOf(), 2);
+    assert.deepEqual(errors, []);
+    await page.context().close();
+  }
+  // the player: 30 / 200 * 90 = 13.5%, 1.3 × 2 = 2.6 times lower = 5.19% (other players: 10.38%)
+  const items = [...demo.ctx.game.catalog.items.values()];
+  const chimp = items.find((i) => i.name === 'Chimpanzini Bananini');
+  const spooky = items.find((i) => i.name === 'Spooky and Pumpky');
+  const inv = (await demo.ctx.db.one("INSERT INTO bs_inventory (user_id, item_id, source) VALUES ($1, $2, 'test') RETURNING id", [p.id, chimp.id])).id;
+  {
+    const { page, errors } = await open({ user: p, path: '/#/upgrade' });
+    await page.waitForSelector(`[data-act="up-pick"][data-inv="${inv}"]`);
+    await page.click(`[data-act="up-pick"][data-inv="${inv}"]`);
+    await page.click('[data-act="up-tab"][data-v="targets"]');
+    await page.click(`[data-act="up-target"][data-id="${spooky.id}"]`);
+    assert.equal(Number((await page.textContent('#gPct')).replace('%', '').replace(',', '.').replace(/\s/g, '')), 5.19);
+    await page.click('#upBtn');
+    await page.waitForSelector('.result', { timeout: 9000 });
+    const last = await demo.ctx.db.one('SELECT chance FROM bs_upgrades WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [p.id]);
+    assert.equal(Number(last.chance), 5.19, 'rolled with the chance on the screen');
+    assert.deepEqual(errors, []);
+    await page.context().close();
+  }
+  assert.equal((await demo.app.post(`/api/admin/users/${p.id}/luck`, { user: boss, body: { luck: 1 } })).status, 200);
+  assert.equal(await luckOf(), 1);
+});
+
 test('non-admins have no admin tab and cannot open it', { skip }, async () => {
   const { page } = await open({ user: demo.others[1], path: '/#/admin/cases' });
   await page.waitForSelector('.case-grid');
