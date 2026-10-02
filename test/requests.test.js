@@ -521,3 +521,35 @@ test('deposit by picked brainrots: validated, merged, shown to the player and th
   const all = (await app.get('/api/admin/requests?kind=deposit&scope=all', { user: admin })).body.requests;
   assert.equal(all.find((x) => x.id === depId).offer, null);
 });
+
+test('admins choose which brainrots can be deposited ("Can be deposited")', async () => {
+  const u = { id: 1051, first_name: 'Fred', username: 'fred', language_code: 'ru' };
+  await app.post('/api/bootstrap', { user: u });
+  await app.message(u, '/start');
+  await freshWindow();
+  const cer = itemByName('Cerberus');
+  const items = (await app.get('/api/admin/items', { user: admin })).body.items;
+  assert.ok(items.every((i) => i.depositable === true), 'every brainrot can be deposited at first');
+  const ids = async () => (await app.get('/api/catalog', { user: u })).body.depositIds;
+  assert.ok((await ids()).includes(cer.id));
+  // switched off in the item editor
+  const body = { name: cer.name, value: cer.value, emoji: cer.emoji, enabled: true, depositable: false };
+  assert.equal((await app.put(`/api/admin/items/${cer.id}`, { user: admin, body })).status, 200);
+  assert.ok(!(await ids()).includes(cer.id), 'not offered in the app');
+  assert.ok((await app.post('/api/bootstrap', { user: u })).body.depositIds.every((id) => id !== cer.id));
+  const r = await app.post('/api/requests/deposit', { user: u, body: { nick: 'FredRBX', offer: [{ itemId: cer.id, count: 1 }] } });
+  assert.equal(r.body.error, 'bad_offer', 'and refused by the server');
+  // other flags are kept when the field isn't sent; on again
+  assert.equal((await app.put(`/api/admin/items/${cer.id}`, { user: admin, body: { ...body, depositable: undefined } })).status, 200);
+  assert.ok(!(await ids()).includes(cer.id));
+  await app.put(`/api/admin/items/${cer.id}`, { user: admin, body: { ...body, depositable: true } });
+  assert.ok((await ids()).includes(cer.id));
+  await freshWindow();
+  const ok = await app.post('/api/requests/deposit', { user: u, body: { nick: 'FredRBX', offer: [{ itemId: cer.id, count: 1 }] } });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  // a new brainrot can be deposited unless switched off
+  const fresh = await app.post('/api/admin/items', { user: admin, body: { name: 'Depo Test', value: 5, emoji: '🧪' } });
+  assert.ok((await ids()).includes(fresh.body.item.id));
+  const off = await app.post('/api/admin/items', { user: admin, body: { name: 'Depo Off', value: 5, emoji: '🧪', depositable: false } });
+  assert.ok(!(await ids()).includes(off.body.item.id));
+});

@@ -664,6 +664,41 @@ test('deposit by brainrots: nickname + brainrots picked from the list, request r
   await page.context().close();
 });
 
+test('admin: «Можно пополнять» in the item editor decides which brainrots players can deposit', { skip }, async () => {
+  const cer = [...demo.ctx.game.catalog.items.values()].find((i) => i.name === 'Cerberus');
+  const { page, errors } = await open({ path: '/#/admin/items' });
+  await page.waitForSelector(`[data-item="${cer.id}"]`);
+  await page.click(`[data-item="${cer.id}"]`);
+  await page.waitForSelector('#itemForm [name="depositable"]', { state: 'attached' });
+  assert.equal(await page.isChecked('#itemForm [name="depositable"]'), true, 'on by default');
+  assert.ok((await page.textContent('#itemForm')).includes('Можно пополнять'));
+  await page.click('#itemForm label.switch:has([name="depositable"])');
+  await page.click('#itemForm button[type=submit]');
+  await page.waitForSelector('.toast.ok');
+  assert.equal(demo.ctx.game.catalog.items.get(cer.id).depositable, false);
+  // the player no longer sees it in the deposit list (after the app reloads its data)
+  await page.reload();
+  await page.waitForSelector('#admBody');
+  await page.click('[data-act="topup"]');
+  await page.click('[data-act="tu-brainrots"]');
+  await page.waitForSelector('#depGrid [data-dep]');
+  assert.equal(await page.locator(`#depGrid [data-dep="${cer.id}"]`).count(), 0);
+  const shown = await page.locator('#depGrid [data-dep]').count();
+  assert.equal(shown, (await demo.app.get('/api/catalog', { user: ME })).body.depositIds.length);
+  await page.click('.modal-backdrop', { position: { x: 10, y: 10 } });
+  await page.waitForSelector('.modal-wrap', { state: 'detached' });
+  // switched back on
+  await page.click(`[data-item="${cer.id}"]`);
+  await page.waitForSelector('#itemForm [name="depositable"]', { state: 'attached' });
+  assert.equal(await page.isChecked('#itemForm [name="depositable"]'), false);
+  await page.click('#itemForm label.switch:has([name="depositable"])');
+  await page.click('#itemForm button[type=submit]');
+  await page.waitForSelector('.toast.ok');
+  assert.equal(demo.ctx.game.catalog.items.get(cer.id).depositable, true);
+  assert.deepEqual(errors, []);
+  await page.context().close();
+});
+
 test('withdrawal from the profile: listed brainrots go as they are, others are exchanged with a remainder', { skip }, async () => {
   const give = async (name) => {
     const it = [...demo.ctx.game.catalog.items.values()].find((i) => i.name === name);
@@ -1100,6 +1135,9 @@ test('admin: the player card shows where each brainrot came from', { skip }, asy
   assert.ok((await src(upInv)).startsWith('Upgrader · 64.57% chance · bet'));
   await page.click('[data-act="lang"]');
   await page.click('[data-lang="ru"]');
+  // the language is saved on the server in the background: wait for it, later tests expect Russian
+  for (let i = 0; i < 50 && (await apiMe()).me.lang !== 'ru'; i++) await new Promise((r) => setTimeout(r, 100));
+  assert.equal((await apiMe()).me.lang, 'ru');
   assert.deepEqual(errors, []);
   await page.context().close();
 });
