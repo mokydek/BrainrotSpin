@@ -567,8 +567,12 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
   );
 
   // ------------------------------------------------------------ settings
-  // the Stars rate is seen and changed by the main admin only; other admins don't get the field at all
-  const OWNER_SETTINGS = ['stars_rate'];
+  // the Stars rate and the upgrader luck are seen and changed by the main admin only;
+  // other admins don't get these fields at all
+  const OWNER_SETTINGS = ['stars_rate', 'upgrade_luck'];
+  // the rest of the upgrader settings: other admins see them, but only the main admin changes them
+  // (the form always sends every field; only an actual change is refused, with the generic error)
+  const UPGRADER_SETTINGS = ['upgrade_edge', 'upgrade_min_chance', 'upgrade_max_chance'];
   const visibleSettings = (user) => {
     const s = settings.all();
     if (!isMain(user)) for (const k of OWNER_SETTINGS) delete s[k];
@@ -579,7 +583,12 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
     '/settings',
     wrap(async (req) => {
       const patch = { ...(req.body && typeof req.body === 'object' ? req.body : {}) };
-      if (!isMain(req.user)) for (const k of OWNER_SETTINGS) delete patch[k];
+      if (!isMain(req.user)) {
+        for (const k of OWNER_SETTINGS) delete patch[k];
+        for (const k of UPGRADER_SETTINGS) {
+          if (Object.hasOwn(patch, k) && Number(String(patch[k]).replace(',', '.')) !== settings.get(k)) throw new GameError('forbidden', 403);
+        }
+      }
       await settings.update(patch);
       return { settings: visibleSettings(req.user) };
     }),
