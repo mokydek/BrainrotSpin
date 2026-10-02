@@ -60,13 +60,21 @@ export async function startDemo({ dbName = 'bs_t_ui', env = {} } = {}) {
 
   // Deposits / withdrawals for the admin tabs
   const [, kira, danya, , lesha] = OTHERS;
-  const dep = await app.post('/api/requests/deposit', { user: kira, body: { nick: 'KiraPlays', details: 'Tralalero Tralala, Brr Brr Patapim' } });
+  const idOf = (name) => {
+    const it = [...ctx.game.catalog.items.values()].find((i) => i.name === name);
+    if (!it) throw new Error('no item ' + name);
+    return it.id;
+  };
+  const dep = await app.post('/api/requests/deposit', {
+    user: kira,
+    body: { nick: 'KiraPlays', offer: [{ itemId: idOf('Tralalero Tralala'), count: 2 }, { itemId: idOf('Brr Brr Patapim'), count: 1 }] },
+  });
   await app.post(`/api/admin/requests/${dep.body.request.id}/messages`, { user: ME, body: { text: 'Привет! Добавь BossRoblox в друзья и зайди на мой сервер' } });
   await app.sendUpdate({
     callback_query: { id: 'cb1', from: { is_bot: false, ...kira }, chat_instance: 'x', data: `rq:${dep.body.request.id}`, message: { message_id: 1, date: 0, chat: { id: kira.id, type: 'private' }, text: 'x' } },
   });
   await app.message(kira, 'Добавила, ник KiraPlays, жду 🙌');
-  await app.post('/api/requests/deposit', { user: lesha, body: { nick: 'LeshaRBX', details: 'La Vacca Saturno Saturnita' } });
+  await app.post('/api/requests/deposit', { user: lesha, body: { nick: 'LeshaRBX', offer: [{ itemId: idOf('La Vacca Saturno Saturnita'), count: 1 }] } });
   const giveTo = async (u, name) => {
     const it = [...ctx.game.catalog.items.values()].find((i) => i.name === name);
     return (await ctx.db.one("INSERT INTO bs_inventory (user_id, item_id, source) VALUES ($1, $2, 'demo') RETURNING id", [u.id, it.id])).id;
