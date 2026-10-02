@@ -85,7 +85,7 @@ export function createRequests({ db, settings, game, tg, config }) {
       const id = Number(e && e.itemId);
       const n = e && e.count !== undefined ? Number(e.count) : 1;
       const it = game.catalog.items.get(id);
-      if (!it || !it.enabled || !Number.isInteger(n) || n < 1 || n > OFFER_COUNT_MAX) throw new GameError('bad_offer');
+      if (!it || !it.enabled || !it.depositable || !Number.isInteger(n) || n < 1 || n > OFFER_COUNT_MAX) throw new GameError('bad_offer');
       counts.set(id, Math.min(OFFER_COUNT_MAX, (counts.get(id) || 0) + n));
     }
     return [...counts].map(([id, count]) => {

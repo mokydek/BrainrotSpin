@@ -120,6 +120,10 @@ test('upgrade chance formula', () => {
   assert.equal(upgradeChance(1, 16500, 10, 80), 0);
   assert.equal(upgradeChance(0, 100, 10, 80), 0);
   assert.equal(upgradeChance(10, 30, 10, 80), 30);
+  // bad luck: every chance 1.3 times lower, the cap too
+  assert.equal(upgradeChance(55, 200, 10, 80, 1.3), 19.03);
+  assert.equal(upgradeChance(90, 100, 10, 80, 1.3), 61.53);
+  assert.equal(upgradeChance(50, 100, 10, 80, 1), 45);
   assert.equal(upgradeChance(1, 3, 0, 95), 33.33);
 });
 

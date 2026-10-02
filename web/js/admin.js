@@ -439,7 +439,7 @@ function resizeImage(file, max = 256) {
 }
 
 function itemEditor(item, done) {
-  const it = item || { id: null, name: '', value: 10, emoji: '🎁', rarityOverride: null, image_url: '', enabled: true, withdrawable: false, hasUpload: false };
+  const it = item || { id: null, name: '', value: 10, emoji: '🎁', rarityOverride: null, image_url: '', enabled: true, withdrawable: false, depositable: true, hasUpload: false };
   const sheet = C.openModal(
     h`<form class="form" id="itemForm" autocomplete="off">
       <div class="sheet-title">${it.id ? it.name : C.t('a.newItem')}</div>
@@ -461,6 +461,7 @@ function itemEditor(item, done) {
       <label>${C.t('a.imageUrl')}<input class="input" name="image_url" maxlength="500" value="${it.image_url || ''}" placeholder="https://…"></label>
       <label class="switch"><input type="checkbox" name="enabled" ${it.enabled ? C.raw('checked') : ''}><i></i>${C.t('a.enabled')}</label>
       <label class="switch"><input type="checkbox" name="withdrawable" ${it.withdrawable ? C.raw('checked') : ''}><i></i>${C.t('a.withdrawable')}</label>
+      <label class="switch"><input type="checkbox" name="depositable" ${it.depositable !== false ? C.raw('checked') : ''}><i></i>${C.t('a.depositable')}</label>
       <div class="form-foot"><button type="submit" class="btn primary">${C.t('a.save')}</button></div>
     </form>`,
     { cls: 'tall' },
@@ -501,6 +502,7 @@ function itemEditor(item, done) {
       image_url: f.get('image_url') || null,
       enabled: f.get('enabled') === 'on',
       withdrawable: f.get('withdrawable') === 'on',
+      depositable: f.get('depositable') === 'on',
     };
     try {
       if (it.id) await C.API.put(`/admin/items/${it.id}`, payload);
@@ -729,6 +731,7 @@ const SETTING_FIELDS = [
   ['upgrade_edge', 'number'],
   ['upgrade_min_chance', 'number'],
   ['upgrade_max_chance', 'number'],
+  ['upgrade_luck', 'number'],
   ['start_balance', 'number'],
   ['stars_rate', 'number'],
   ['welcome_ru', 'textarea'],

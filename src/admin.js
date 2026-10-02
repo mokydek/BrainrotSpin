@@ -290,6 +290,7 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
         hasUpload: i.has_image,
         enabled: i.enabled,
         withdrawable: i.withdrawable,
+        depositable: i.depositable,
         inCases: used.get(i.id) || 0,
       }));
       return { items, rarities: RARITIES };
@@ -307,6 +308,7 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
       image_url: imageUrl(b.image_url),
       enabled: b.enabled === undefined ? true : bool(b.enabled, 'enabled'),
       withdrawable: b.withdrawable === undefined ? null : bool(b.withdrawable, 'withdrawable'),
+      depositable: b.depositable === undefined ? null : bool(b.depositable, 'depositable'),
     };
   }
 
@@ -315,8 +317,8 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
     wrap(async (req) => {
       const it = parseItemBody(req.body || {});
       const row = await db.one(
-        'INSERT INTO bs_items (name, value, emoji, rarity, image_url, enabled, withdrawable) VALUES ($1,$2,$3,$4,$5,$6,coalesce($7,FALSE)) RETURNING id',
-        [it.name, it.value, it.emoji, it.rarity, it.image_url, it.enabled, it.withdrawable],
+        'INSERT INTO bs_items (name, value, emoji, rarity, image_url, enabled, withdrawable, depositable) VALUES ($1,$2,$3,$4,$5,$6,coalesce($7,FALSE),coalesce($8,TRUE)) RETURNING id',
+        [it.name, it.value, it.emoji, it.rarity, it.image_url, it.enabled, it.withdrawable, it.depositable],
       );
       await game.reloadCatalog();
       return { item: game.publicItem(game.catalog.items.get(row.id)) };
@@ -329,16 +331,10 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
       const id = int(Number(req.params.id), 1, 2_147_483_647, 'id');
       if (!game.catalog.items.has(id)) throw new GameError('not_found', 404);
       const it = parseItemBody(req.body || {});
-      await db.query('UPDATE bs_items SET name=$2, value=$3, emoji=$4, rarity=$5, image_url=$6, enabled=$7, withdrawable=coalesce($8, withdrawable) WHERE id=$1', [
-        id,
-        it.name,
-        it.value,
-        it.emoji,
-        it.rarity,
-        it.image_url,
-        it.enabled,
-        it.withdrawable,
-      ]);
+      await db.query(
+        'UPDATE bs_items SET name=$2, value=$3, emoji=$4, rarity=$5, image_url=$6, enabled=$7, withdrawable=coalesce($8, withdrawable), depositable=coalesce($9, depositable) WHERE id=$1',
+        [id, it.name, it.value, it.emoji, it.rarity, it.image_url, it.enabled, it.withdrawable, it.depositable],
+      );
       await game.reloadCatalog();
       return { item: game.publicItem(game.catalog.items.get(id)) };
     }),
@@ -567,8 +563,12 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
   );
 
   // ------------------------------------------------------------ settings
-  // the Stars rate is seen and changed by the main admin only; other admins don't get the field at all
-  const OWNER_SETTINGS = ['stars_rate'];
+  // the Stars rate and the upgrader luck are seen and changed by the main admin only;
+  // other admins don't get these fields at all
+  const OWNER_SETTINGS = ['stars_rate', 'upgrade_luck'];
+  // the rest of the upgrader settings: other admins see them, but only the main admin changes them
+  // (the form always sends every field; only an actual change is refused, with the generic error)
+  const UPGRADER_SETTINGS = ['upgrade_edge', 'upgrade_min_chance', 'upgrade_max_chance'];
   const visibleSettings = (user) => {
     const s = settings.all();
     if (!isMain(user)) for (const k of OWNER_SETTINGS) delete s[k];
@@ -579,7 +579,12 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
     '/settings',
     wrap(async (req) => {
       const patch = { ...(req.body && typeof req.body === 'object' ? req.body : {}) };
-      if (!isMain(req.user)) for (const k of OWNER_SETTINGS) delete patch[k];
+      if (!isMain(req.user)) {
+        for (const k of OWNER_SETTINGS) delete patch[k];
+        for (const k of UPGRADER_SETTINGS) {
+          if (Object.hasOwn(patch, k) && Number(String(patch[k]).replace(',', '.')) !== settings.get(k)) throw new GameError('forbidden', 403);
+        }
+      }
       await settings.update(patch);
       return { settings: visibleSettings(req.user) };
     }),

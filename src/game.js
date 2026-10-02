@@ -18,11 +18,14 @@ export function displayName(u) {
   return name.length > 18 ? name.slice(0, 17) + '…' : name;
 }
 
-/** Upgrade chance in percent (2 decimals, rounded down). */
-export function upgradeChance(betValue, targetValue, edgePct, maxChance) {
+/**
+ * Upgrade chance in percent (2 decimals, rounded down). `luck` > 1 makes every chance that many
+ * times lower. The app shows players this very number (same formula in web/js/app.js).
+ */
+export function upgradeChance(betValue, targetValue, edgePct, maxChance, luck = 1) {
   if (!(targetValue > 0) || !(betValue > 0)) return 0;
   const raw = (betValue / targetValue) * (100 - edgePct);
-  return Math.min(maxChance, Math.floor(raw * 100) / 100);
+  return Math.floor((Math.min(maxChance, raw) / luck) * 100) / 100;
 }
 
 /** Weighted pick; chances may be any positive numbers (they are normalised). */
@@ -76,7 +79,7 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
 
   async function reloadCatalog() {
     const items = await db.many(
-      `SELECT id, name, value, emoji, rarity, image_url, enabled, coalesce(withdrawable, FALSE) AS withdrawable,
+      `SELECT id, name, value, emoji, rarity, image_url, enabled, coalesce(withdrawable, FALSE) AS withdrawable, depositable,
               (image_data IS NOT NULL) AS has_image, md5(coalesce(image_data, '')) AS img_ver
          FROM bs_items ORDER BY value, id`,
     );
@@ -110,6 +113,11 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
     return [...catalog.items.values()].filter((i) => i.withdrawable).map((i) => i.id);
   }
 
+  /** Ids of brainrots players can pick in a deposit by brainrots. */
+  function depositIds() {
+    return [...catalog.items.values()].filter((i) => i.enabled && i.depositable).map((i) => i.id);
+  }
+
   function listCategories() {
     return catalog.categories.map((c) => ({ id: c.id, name: c.name, sort: c.sort }));
   }
@@ -131,6 +139,7 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
       edge: settings.get('upgrade_edge'),
       minChance: settings.get('upgrade_min_chance'),
       maxChance: settings.get('upgrade_max_chance'),
+      luck: settings.get('upgrade_luck'),
     };
   }
 
@@ -315,7 +324,7 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
   }
 
   // ---------------------------------------------------------------- upgrader
-  async function upgrade(user, { ids, target }) {
+  async function upgrade(user, { ids, target, chance: shown }) {
     const list = parseIds(ids, 6);
     const targetItem = catalog.items.get(Number(target));
     if (!targetItem || !targetItem.enabled) throw new GameError('item_not_found', 404);
@@ -330,8 +339,10 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
       if (inv.rowCount !== list.length) throw new GameError('items_missing');
       const bet = inv.rows.reduce((sum, r) => sum + (catalog.items.get(r.item_id)?.value || 0), 0);
       if (targetItem.value <= bet) throw new GameError('target_too_cheap');
-      const chance = upgradeChance(bet, targetItem.value, s.edge, s.maxChance);
+      const chance = upgradeChance(bet, targetItem.value, s.edge, s.maxChance, s.luck);
       if (chance < s.minChance) throw new GameError('chance_too_low');
+      // the player must have been shown this very chance (settings or prices may have changed since)
+      if (Number(shown) !== chance) throw new GameError('chance_changed', 409, { chance });
       const roll = rng.int(100000) / 1000;
       const won = roll < chance;
       await cl.query('DELETE FROM bs_inventory WHERE id = ANY($1::bigint[])', [list]);
@@ -422,6 +433,7 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
     listCases,
     listCategories,
     withdrawIds,
+    depositIds,
     listItems,
     publicItem,
     caseImage,

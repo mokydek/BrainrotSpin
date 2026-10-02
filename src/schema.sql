@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS bs_items (
 
 -- brainrots that can be withdrawn (others are exchanged for one of them); NULL = not set yet
 ALTER TABLE bs_items ADD COLUMN IF NOT EXISTS withdrawable BOOLEAN;
+-- can be picked in a deposit by brainrots (admins switch it off for the ones they don't take)
+ALTER TABLE bs_items ADD COLUMN IF NOT EXISTS depositable BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS bs_cases (
   id       SERIAL PRIMARY KEY,

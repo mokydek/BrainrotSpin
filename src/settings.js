@@ -13,6 +13,7 @@ export const SETTINGS_SCHEMA = {
   upgrade_edge: { type: 'number', min: 0, max: 90, def: 10 }, // % kept by the upgrader
   upgrade_min_chance: { type: 'number', min: 0.01, max: 50, def: 1 },
   upgrade_max_chance: { type: 'number', min: 1, max: 95, def: 80 },
+  upgrade_luck: { type: 'number', min: 1, max: 10, def: 1.3 }, // every upgrade chance is this many times lower
   start_balance: { type: 'number', min: 0, max: 1_000_000, def: 0, int: true },
   stars_rate: { type: 'number', min: 0.01, max: 1_000_000, def: 1 }, // coins for 1 Telegram Star
   welcome_ru: { type: 'string', max: 1000, def: '' },
@@ -77,10 +78,13 @@ export function createSettings(db) {
     async update(patch) {
       const clean = {};
       for (const [k, v] of Object.entries(patch || {})) clean[k] = validateSetting(k, v);
-      if (clean.upgrade_min_chance !== undefined || clean.upgrade_max_chance !== undefined) {
+      if (clean.upgrade_min_chance !== undefined || clean.upgrade_max_chance !== undefined || clean.upgrade_luck !== undefined) {
         const min = clean.upgrade_min_chance ?? cache.upgrade_min_chance;
         const max = clean.upgrade_max_chance ?? cache.upgrade_max_chance;
+        const luck = clean.upgrade_luck ?? cache.upgrade_luck;
         if (min >= max) throw new SettingsError('upgrade_min_chance', 'must be lower than max chance');
+        // the highest chance a player can get must stay above the minimum
+        if (min >= max / luck) throw new SettingsError('upgrade_luck', 'max chance / luck must be above min chance');
       }
       for (const [k, v] of Object.entries(clean)) {
         await db.query(
