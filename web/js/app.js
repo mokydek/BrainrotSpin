@@ -33,6 +33,7 @@ const S = {
   items: [],
   itemsById: new Map(),
   withdrawIds: null, // brainrots that can be withdrawn; others are exchanged for one of them (null: server doesn't say)
+  depositIds: null, // brainrots that can be picked in a deposit (null: server doesn't say — all)
   upgrade: { edge: 10, minChance: 1, maxChance: 80, luck: 1 },
   free: null,
   feed: [],
@@ -1048,6 +1049,7 @@ async function reloadCatalog() {
   S.cases = r.cases;
   S.categories = r.categories || [];
   if (r.withdrawIds) S.withdrawIds = r.withdrawIds;
+  if (r.depositIds) S.depositIds = r.depositIds;
   S.items = r.items;
   S.itemsById = new Map(r.items.map((i) => [i.id, i]));
   S.upgrade = r.upgrade;
@@ -1323,7 +1325,8 @@ const OFFER_COUNT_MAX = 99;
 function topupBrainrots() {
   const box = tuBox();
   if (!box) return;
-  const list = [...S.items].sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+  const can = S.depositIds ? new Set(S.depositIds) : null; // admins choose which brainrots are taken
+  const list = S.items.filter((i) => !can || can.has(i.id)).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
   const byId = new Map(list.map((i) => [i.id, i]));
   const picked = new Map(); // itemId -> count
   render(
@@ -1776,6 +1779,7 @@ function applyBootstrap(b) {
   S.cases = b.cases;
   S.categories = b.categories || [];
   S.withdrawIds = Array.isArray(b.withdrawIds) ? b.withdrawIds : null;
+  S.depositIds = Array.isArray(b.depositIds) ? b.depositIds : null;
   S.items = b.items;
   S.itemsById = new Map(b.items.map((i) => [i.id, i]));
   S.upgrade = b.upgrade;
