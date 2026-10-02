@@ -10,6 +10,8 @@ export const OPEN = ['new', 'active'];
 export const MAX_OPEN_REQUESTS = 5;
 export const STARS_MAX = 10000;
 export const MSG_MAX = 2000;
+export const OFFER_MAX = 20; // different brainrots in one deposit request
+export const OFFER_COUNT_MAX = 99; // copies of one brainrot
 export const INVOICE_TTL_SEC = 24 * 3600; // older invoices are refused at checkout (the rate may have changed)
 
 const clip = (s, n = 4000) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
@@ -73,6 +75,24 @@ export function createRequests({ db, settings, game, tg, config }) {
     };
   }
   const itemNames = (items) => items.map((i) => i.name).join(', ');
+  const offerText = (offer) => offer.map((e) => (e.count > 1 ? `${e.name} ×${e.count}` : e.name)).join(', ');
+
+  /** Brainrots picked for a deposit: [{itemId, count}] -> stored entries (same brainrot merged). */
+  function parseOffer(raw) {
+    if (!Array.isArray(raw) || raw.length < 1 || raw.length > OFFER_MAX) throw new GameError('bad_offer');
+    const counts = new Map();
+    for (const e of raw) {
+      const id = Number(e && e.itemId);
+      const n = e && e.count !== undefined ? Number(e.count) : 1;
+      const it = game.catalog.items.get(id);
+      if (!it || !it.enabled || !Number.isInteger(n) || n < 1 || n > OFFER_COUNT_MAX) throw new GameError('bad_offer');
+      counts.set(id, Math.min(OFFER_COUNT_MAX, (counts.get(id) || 0) + n));
+    }
+    return [...counts].map(([id, count]) => {
+      const it = game.catalog.items.get(id);
+      return { itemId: it.id, name: it.name, value: it.value, emoji: it.emoji, count };
+    });
+  }
 
   function view(r) {
     const out = {
@@ -82,6 +102,8 @@ export function createRequests({ db, settings, game, tg, config }) {
       status: r.status,
       nick: r.nick,
       details: r.details,
+      offer: r.offer ? r.offer.map((e) => ({ ...itemView(e), count: e.count })) : null,
+      offerTotal: r.offer ? r.offer.reduce((s, e) => s + e.value * e.count, 0) : 0,
       items: (r.items || []).map(itemView),
       total: r.total,
       exchange: r.exchange
@@ -149,9 +171,9 @@ export function createRequests({ db, settings, game, tg, config }) {
   async function insertRequest(cl, user, fields) {
     const row = (
       await cl.query(
-        `INSERT INTO bs_requests (user_id, kind, method, nick, details, items, total)
-         VALUES ($1, $2, 'brainrot', $3, $4, $5::jsonb, $6) RETURNING *`,
-        [user.id, fields.kind, fields.nick, fields.details ?? null, JSON.stringify(fields.items || []), fields.total || 0],
+        `INSERT INTO bs_requests (user_id, kind, method, nick, details, items, total, offer)
+         VALUES ($1, $2, 'brainrot', $3, $4, $5::jsonb, $6, $7::jsonb) RETURNING *`,
+        [user.id, fields.kind, fields.nick, fields.details ?? null, JSON.stringify(fields.items || []), fields.total || 0, fields.offer ? JSON.stringify(fields.offer) : null],
       )
     ).rows[0];
     const sys = (
@@ -184,12 +206,20 @@ export function createRequests({ db, settings, game, tg, config }) {
   }
 
   // ------------------------------------------------------------ player
+  /** Deposit by brainrots: the player picks which brainrots they will give (`offer`). */
   async function createDeposit(user, body = {}) {
     const nick = cleanNick(body.nick);
-    const details = cleanText(body.details, 2, 500, 'bad_details');
+    let offer = null;
+    let details;
+    if (body.offer !== undefined) {
+      offer = parseOffer(body.offer);
+      details = offerText(offer);
+    } else {
+      details = cleanText(body.details, 2, 500, 'bad_details'); // app versions before the picker
+    }
     const { row, sysId } = await db.tx(async (cl) => {
       await lockUserAndCheckLimit(cl, user.id);
-      return insertRequest(cl, user, { kind: 'deposit', nick, details });
+      return insertRequest(cl, user, { kind: 'deposit', nick, details, offer });
     });
     await announce(user, row, sysId);
     return { request: view(row) };
