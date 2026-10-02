@@ -1189,6 +1189,7 @@ function openTopup() {
 function topupMenu() {
   const box = tuBox();
   if (!box) return;
+  box.closest('.sheet')?.classList.remove('tall');
   render(
     box,
     html`<div class="sheet-title">${t('topup')}</div>
@@ -1203,6 +1204,7 @@ function topupMenu() {
 function topupStars() {
   const box = tuBox();
   if (!box) return;
+  box.closest('.sheet')?.classList.remove('tall');
   const def = 100;
   render(
     box,
@@ -1292,30 +1294,87 @@ async function awaitCredit(invoice, seconds) {
   }
 }
 
+const OFFER_MAX = 20; // different brainrots in one deposit request
+const OFFER_COUNT_MAX = 99;
+
+/** Deposit by brainrots: nick + the brainrots the player will give (picked from the list). */
 function topupBrainrots() {
   const box = tuBox();
   if (!box) return;
+  const list = [...S.items].sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+  const byId = new Map(list.map((i) => [i.id, i]));
+  const picked = new Map(); // itemId -> count
   render(
     box,
     html`${tuHead(t('tu.brainrots'))}
     <form class="form tu-form" id="depForm" autocomplete="off">
       <label>${t('nick')}<input class="input" name="nick" maxlength="32" value="${S.me.nick || ''}" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
-      <label>${t('depWhat')}<textarea class="input" name="details" rows="3" maxlength="500"></textarea></label>
-      <button class="btn primary big" type="submit">${t('sendReq')}</button>
+      <div class="fld-lbl">${t('depWhat')}</div>
+      <div class="dep-sel" id="depSel"></div>
+      <input class="input" id="depSearch" type="search" placeholder="${t('depSearch')}" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <div class="grid items" id="depGrid">${list.map(
+        (it) => html`<button type="button" class="item pick r-${it.rarity}" data-dep="${it.id}" data-name="${it.name.toLowerCase()}">
+          <div class="pick-mark">${raw(ICON.check)}</div>
+          <div class="item-art">${art(it)}</div>
+          <div class="item-name">${it.name}</div>
+          <div class="item-val">${coin(12)}${fmt(it.value)}</div>
+        </button>`,
+      )}</div>
+      <div class="wd-foot"><button class="btn primary big" type="submit" id="depBtn" disabled>${t('sendReq')}</button></div>
     </form>`,
   );
+  box.closest('.sheet')?.classList.add('tall');
   const form = box.querySelector('#depForm');
+  const btn = form.querySelector('#depBtn');
+  const update = () => {
+    render(
+      form.querySelector('#depSel'),
+      html`${[...picked].map(([id, n]) => {
+        const it = byId.get(id);
+        return html`<div class="dep-row r-${it.rarity}" data-row="${id}">
+          <span class="lr-art">${art(it)}</span>
+          <span class="lr-name"><b>${it.name}</b><small>${money(it.value, 11)}</small></span>
+          <span class="dep-cnt"><button type="button" class="icon-btn small" data-dep-dec="${id}" aria-label="−">−</button><b>${n}</b><button type="button" class="icon-btn small" data-dep-inc="${id}" aria-label="+" ${n >= OFFER_COUNT_MAX ? raw('disabled') : ''}>+</button></span>
+        </div>`;
+      })}`,
+    );
+    for (const el of form.querySelectorAll('[data-dep]')) el.classList.toggle('sel', picked.has(Number(el.dataset.dep)));
+    btn.disabled = picked.size === 0;
+  };
+  form.addEventListener('click', (e) => {
+    const tile = e.target.closest('[data-dep]');
+    const inc = e.target.closest('[data-dep-inc]');
+    const dec = e.target.closest('[data-dep-dec]');
+    if (tile) {
+      const id = Number(tile.dataset.dep);
+      if (picked.has(id)) picked.delete(id);
+      else if (picked.size >= OFFER_MAX) return toast(t('depMax', { n: OFFER_MAX }));
+      else picked.set(id, 1);
+    } else if (inc) {
+      const id = Number(inc.dataset.depInc);
+      picked.set(id, Math.min(OFFER_COUNT_MAX, (picked.get(id) || 0) + 1));
+    } else if (dec) {
+      const id = Number(dec.dataset.depDec);
+      const n = (picked.get(id) || 0) - 1;
+      if (n > 0) picked.set(id, n);
+      else picked.delete(id);
+    } else return;
+    haptic.tick();
+    update();
+  });
+  form.querySelector('#depSearch').addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    for (const el of form.querySelectorAll('[data-dep]')) el.classList.toggle('hidden', !!q && !el.dataset.name.includes(q));
+  });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const f = new FormData(form);
-    const nick = String(f.get('nick') || '').trim();
-    const details = String(f.get('details') || '').trim();
+    const nick = String(new FormData(form).get('nick') || '').trim();
     if (nick.replace(/^@+/, '').length < 3) return showError({ code: 'bad_nick' });
-    if (details.length < 2) return showError({ code: 'bad_details' });
-    const btn = form.querySelector('button[type=submit]');
+    if (!picked.size) return showError({ code: 'bad_offer' });
+    const offer = [...picked].map(([itemId, count]) => ({ itemId, count }));
     btn.disabled = true;
     try {
-      const r = await API.post('/requests/deposit', { nick, details });
+      const r = await API.post('/requests/deposit', { nick, offer });
       S.me.nick = r.request.nick;
       closeModal();
       haptic.notify('success');

@@ -173,6 +173,8 @@ CREATE TABLE IF NOT EXISTS bs_requests (
 );
 -- withdrawal: brainrots that couldn't be withdrawn, exchanged for one that can; remainder in coins
 ALTER TABLE bs_requests ADD COLUMN IF NOT EXISTS exchange JSONB;
+-- deposit: brainrots the player picked to give [{itemId, name, value, emoji, count}]
+ALTER TABLE bs_requests ADD COLUMN IF NOT EXISTS offer JSONB;
 CREATE INDEX IF NOT EXISTS bs_requests_kind_idx ON bs_requests (kind, status, id DESC);
 CREATE INDEX IF NOT EXISTS bs_requests_user_idx ON bs_requests (user_id);
 ALTER TABLE bs_requests ADD COLUMN IF NOT EXISTS invoice TEXT;

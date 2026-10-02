@@ -545,28 +545,73 @@ test('website mode: Stars invoice opens as a Telegram link and the balance updat
   await context.close();
 });
 
-test('deposit by brainrots: nickname + what, request reaches the admins', { skip }, async () => {
+test('deposit by brainrots: nickname + brainrots picked from the list, request reaches the admins', { skip }, async () => {
   const { page, errors } = await open();
   await page.waitForSelector('.case-grid');
   await page.click('[data-act="topup"]');
   await page.click('[data-act="tu-brainrots"]');
   await page.waitForSelector('#depForm');
-  await page.fill('#depForm [name=details]', 'Tralalero Tralala');
-  await page.click('#depForm button[type=submit]');
+  // no text field any more: a list of brainrots to pick from
+  assert.equal(await page.locator('#depForm textarea').count(), 0);
+  const total = await page.locator('#depGrid [data-dep]').count();
+  assert.equal(total, (await demo.app.get('/api/catalog', { user: ME })).body.items.length, 'every brainrot can be picked');
+  assert.equal(await page.isDisabled('#depBtn'), true, 'nothing picked yet');
+  const items = [...demo.ctx.game.catalog.items.values()];
+  const idOf = (n) => items.find((i) => i.name === n).id;
+  const visibleNames = () => page.$$eval('#depGrid [data-dep]:not(.hidden) .item-name', (els) => els.map((e) => e.textContent));
+  // search
+  await page.fill('#depSearch', 'trala');
+  const found = await visibleNames();
+  assert.ok(found.length >= 1 && found.length < total);
+  assert.ok(found.every((n) => n.toLowerCase().includes('trala')), found.join(', '));
+  await page.click(`[data-dep="${idOf('Tralalero Tralala')}"]`);
+  const isSel = (n) => page.$eval(`[data-dep="${idOf(n)}"]`, (el) => el.classList.contains('sel'));
+  assert.equal(await isSel('Tralalero Tralala'), true);
+  assert.equal(await page.isDisabled('#depBtn'), false);
+  // how many: + / −
+  const row = (n) => page.locator(`#depSel [data-row="${idOf(n)}"]`);
+  await row('Tralalero Tralala').locator('[data-dep-inc]').click();
+  await row('Tralalero Tralala').locator('[data-dep-inc]').click();
+  assert.equal(await row('Tralalero Tralala').locator('.dep-cnt b').textContent(), '3');
+  await page.fill('#depSearch', 'cerberus');
+  assert.deepEqual(await visibleNames(), ['Cerberus']);
+  await page.click(`[data-dep="${idOf('Cerberus')}"]`);
+  assert.equal(await page.locator('#depSel .dep-row').count(), 2);
+  await row('Cerberus').locator('[data-dep-dec]').click(); // 1 -> removed
+  assert.equal(await page.locator('#depSel .dep-row').count(), 1);
+  assert.equal(await isSel('Cerberus'), false);
+  await page.click(`[data-dep="${idOf('Cerberus')}"]`);
+  await page.fill('#depSearch', '');
+  assert.equal((await visibleNames()).length, total);
+  // nickname is still required
+  await page.fill('#depForm [name=nick]', '');
+  await page.click('#depBtn');
   await page.waitForSelector('.toast.error');
   assert.match(await page.textContent('.toast.error'), /ник в Roblox/);
   await page.fill('#depForm [name=nick]', 'TestRoblox');
-  await page.click('#depForm button[type=submit]');
+  await page.click('#depBtn');
   await page.waitForSelector('.toast.ok');
-  const row = await demo.ctx.db.one("SELECT * FROM bs_requests WHERE user_id = $1 AND kind = 'deposit' ORDER BY id DESC LIMIT 1", [ME.id]);
-  assert.equal(row.nick, 'TestRoblox');
-  assert.equal(row.details, 'Tralalero Tralala');
-  assert.equal(await page.textContent('.toast.ok'), `Заявка #${row.id} отправлена`);
+  const req = await demo.ctx.db.one("SELECT * FROM bs_requests WHERE user_id = $1 AND kind = 'deposit' ORDER BY id DESC LIMIT 1", [ME.id]);
+  assert.equal(req.nick, 'TestRoblox');
+  assert.deepEqual(
+    req.offer.map((e) => [e.name, e.count]),
+    [['Tralalero Tralala', 3], ['Cerberus', 1]],
+  );
+  assert.equal(req.details, 'Tralalero Tralala ×3, Cerberus');
+  assert.equal(await page.textContent('.toast.ok'), `Заявка #${req.id} отправлена`);
   await page.waitForSelector('.modal-wrap', { state: 'detached' });
   // the nickname is remembered
   await page.click('[data-act="topup"]');
   await page.click('[data-act="tu-brainrots"]');
   assert.equal(await page.inputValue('#depForm [name=nick]'), 'TestRoblox');
+  await page.click('.modal-backdrop', { position: { x: 10, y: 10 } });
+  await page.waitForSelector('.modal-wrap', { state: 'detached' });
+  // the admin sees exactly what was picked
+  await page.evaluate((id) => (location.hash = '#/admin/deposits/' + id), req.id);
+  await page.waitForSelector('.req .offer-n');
+  assert.deepEqual(await page.locator('.req .offer-n').allTextContents(), ['×3', '×1']);
+  const sum = req.offer.reduce((s, e) => s + e.value * e.count, 0);
+  assert.equal(num(await page.textContent('.req .kv:has-text("На сумму") b')), sum);
   assert.deepEqual(errors, []);
   await page.context().close();
 });
