@@ -871,6 +871,10 @@ function reqRow(r) {
     sub = h`<span>${r.nick}</span><span class="req-minis">${r.items.slice(0, 4).map((i) => h`<span class="r-${i.rarity}">${C.art(i)}</span>`)}</span>${
       r.items.length > 4 ? h`<span>+${r.items.length - 4}</span>` : ''
     }${C.money(r.total, 11)}`;
+  } else if (r.offer) {
+    sub = h`<span>${r.nick}</span><span class="req-minis">${r.offer.slice(0, 4).map((i) => h`<span class="r-${i.rarity}">${C.art(i)}</span>`)}</span>${
+      r.offer.length > 4 ? h`<span>+${r.offer.length - 4}</span>` : ''
+    }${C.money(r.offerTotal, 11)}`;
   } else sub = h`<span>${r.nick}</span>`;
   const last = r.lastText || r.details;
   return h`<a class="row req-row ${r.waiting ? 'wait' : ''}" href="#/admin/${SECTION_OF[r.kind]}/${r.id}" data-req="${r.id}">
@@ -945,6 +949,9 @@ function msgView(m, r) {
 
 const itemLine = (i) =>
   h`<div class="row r-${i.rarity}"><span class="row-art">${C.art(i)}</span><span class="row-main"><b>${i.name}</b><small>${C.money(i.value, 11)}</small></span></div>`;
+// a brainrot the player picked for a deposit, with how many of it
+const offerLine = (i) =>
+  h`<div class="row r-${i.rarity}"><span class="row-art">${C.art(i)}</span><span class="row-main"><b>${i.name}</b><small>${C.money(i.value, 11)}</small></span><span class="row-side"><b class="offer-n">×${i.count}</b></span></div>`;
 
 let reqSig = '';
 let reqDrawn = 0; // bumps on every redraw of the card; a refresh that started before it is stale
@@ -971,7 +978,13 @@ function drawReq(body, d, { keep = false } = {}) {
       ${u.blockedBot ? h`<div class="note bad">${C.t('a.r.blocked')}</div>` : ''}
       ${r.nick ? h`<div class="kv"><span>${C.t('a.r.nick')}</span><b class="code" data-copy="${r.nick}">${r.nick}</b></div>` : ''}
       ${r.method === 'stars' ? h`<div class="kv"><span>${C.t('a.r.stars')}</span><b class="money"><span class="emo">⭐</span>${C.fmt(r.stars)} → ${C.money(r.coins, 13)}</b></div>` : ''}
-      ${r.kind === 'deposit' && r.details ? h`<div class="req-field"><span>${C.t('a.r.details')}</span><div class="req-box">${r.details}</div></div>` : ''}
+      ${r.kind === 'deposit' && r.offer
+        ? h`<h4 class="sec-title">${C.t('a.r.details')} <span class="cnt">${r.offer.reduce((s, i) => s + i.count, 0)}</span></h4>
+           <div class="list">${r.offer.map(offerLine)}</div>
+           <div class="kv"><span>${C.t('a.r.total')}</span><b>${C.money(r.offerTotal, 13)}</b></div>`
+        : r.kind === 'deposit' && r.details
+          ? h`<div class="req-field"><span>${C.t('a.r.details')}</span><div class="req-box">${r.details}</div></div>`
+          : ''}
       ${r.kind === 'withdraw'
         ? h`<h4 class="sec-title">${C.t('a.r.items')} <span class="cnt">${r.items.length}</span></h4>
            <div class="list">${r.items.map(itemLine)}</div>
