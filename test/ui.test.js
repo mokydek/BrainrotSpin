@@ -1078,61 +1078,31 @@ test('Stars rate: the field is only in the main admin\'s settings', { skip }, as
   await demo.ctx.settings.update({ stars_rate: before, start_balance: 0 });
 });
 
-test('admin: case odds and upgrader settings — only the main admin can change them, others see the same screens', { skip }, async () => {
-  const boss = { id: 7001, first_name: 'Босс', username: 'owner_ui', language_code: 'ru' };
-  await demo.app.post('/api/bootstrap', { user: boss });
+test('admin: a regular admin edits case odds and the upgrader settings from the panel', { skip }, async () => {
   const noob = demo.bySlug.noob;
   const loot = () => demo.ctx.game.catalog.cases.get(noob.id).items.map((e) => [e.item_id, e.chance]);
   const before = loot();
   const edge = demo.ctx.settings.get('upgrade_edge');
-
-  // a regular admin: the same editor as always, but a changed chance is not saved
-  {
-    const { page, errors } = await open({ path: `/#/admin/cases/${noob.id}` });
-    await page.waitForSelector('#caseForm .lr-chance');
-    assert.equal(await page.isEditable('#caseForm .lr-chance >> nth=0'), true, 'looks the same as before');
-    assert.equal(await page.isVisible('#addLoot'), true);
-    assert.equal(await page.isVisible('#normLoot'), true);
-    await page.fill('#caseForm .lr-chance >> nth=0', '33');
-    await page.click('#caseForm button[type=submit]');
-    await page.waitForSelector('.toast.error');
-    assert.equal(await page.textContent('.toast.error'), 'Что-то пошло не так');
-    assert.deepEqual(loot(), before);
-    // upgrader settings: visible as before, a change is refused
-    await page.evaluate(() => (location.hash = '#/admin/settings'));
-    await page.waitForSelector('#setForm [name="upgrade_edge"]');
-    await page.waitForSelector('.toast.error', { state: 'detached', timeout: 6000 });
-    await page.fill('[name="upgrade_edge"]', '25');
-    await page.click('#setForm button[type=submit]');
-    await page.waitForSelector('.toast.error');
-    assert.equal(demo.ctx.settings.get('upgrade_edge'), edge);
-    assert.deepEqual(errors.filter((e) => !/status of 403/.test(e)), []);
-    await page.context().close();
-  }
-  // the main admin: both are saved, players get them
-  {
-    const { page, errors } = await open({ user: boss, path: `/#/admin/cases/${noob.id}` });
-    await page.waitForSelector('#caseForm .lr-chance');
-    await page.fill('#caseForm .lr-chance >> nth=0', '33');
-    await page.click('#caseForm button[type=submit]');
-    await page.waitForSelector('.toast.ok');
-    assert.ok(loot().some(([, c]) => c === 33), 'new chance saved');
-    assert.notDeepEqual(loot(), before);
-    await page.evaluate(() => (location.hash = '#/admin/settings'));
-    await page.waitForSelector('#setForm [name="upgrade_edge"]');
-    await page.waitForSelector('.toast.ok', { state: 'detached', timeout: 6000 }); // the case was saved
-    await page.fill('[name="upgrade_edge"]', '25');
-    await page.click('#setForm button[type=submit]');
-    await page.waitForSelector('.toast.ok');
-    assert.equal(demo.ctx.settings.get('upgrade_edge'), 25);
-    assert.equal((await demo.app.get('/api/catalog', { user: ME })).body.upgrade.edge, 25);
-    assert.deepEqual(errors, []);
-    await page.context().close();
-  }
+  const { page, errors } = await open({ path: `/#/admin/cases/${noob.id}` });
+  await page.waitForSelector('#caseForm .lr-chance');
+  await page.fill('#caseForm .lr-chance >> nth=0', '33');
+  await page.click('#caseForm button[type=submit]');
+  await page.waitForSelector('.toast.ok');
+  assert.ok(loot().some(([, c]) => c === 33), 'new chance saved');
+  await page.evaluate(() => (location.hash = '#/admin/settings'));
+  await page.waitForSelector('#setForm [name="upgrade_edge"]');
+  await page.waitForSelector('.toast.ok', { state: 'detached', timeout: 6000 }); // the case was saved
+  await page.fill('[name="upgrade_edge"]', '25');
+  await page.click('#setForm button[type=submit]');
+  await page.waitForSelector('.toast.ok');
+  assert.equal(demo.ctx.settings.get('upgrade_edge'), 25);
+  assert.equal((await demo.app.get('/api/catalog', { user: ME })).body.upgrade.edge, 25);
+  assert.deepEqual(errors, []);
+  await page.context().close();
   // restore
   const c = demo.ctx.game.catalog.cases.get(noob.id);
   await demo.app.put(`/api/admin/cases/${noob.id}`, {
-    user: boss,
+    user: ME,
     body: { name_ru: c.name_ru, name_uk: c.name_uk, name_en: c.name_en, emoji: c.emoji, color: c.color, sort: c.sort, enabled: c.enabled, price: c.price, category_id: c.category_id, items: before.map(([itemId, chance]) => ({ itemId, chance })) },
   });
   await demo.ctx.settings.update({ upgrade_edge: edge });
