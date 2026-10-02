@@ -79,7 +79,7 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
 
   async function reloadCatalog() {
     const items = await db.many(
-      `SELECT id, name, value, emoji, rarity, image_url, enabled, coalesce(withdrawable, FALSE) AS withdrawable,
+      `SELECT id, name, value, emoji, rarity, image_url, enabled, coalesce(withdrawable, FALSE) AS withdrawable, depositable,
               (image_data IS NOT NULL) AS has_image, md5(coalesce(image_data, '')) AS img_ver
          FROM bs_items ORDER BY value, id`,
     );
@@ -111,6 +111,11 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
   /** Ids of brainrots that can be withdrawn (also disabled ones a player may still hold). */
   function withdrawIds() {
     return [...catalog.items.values()].filter((i) => i.withdrawable).map((i) => i.id);
+  }
+
+  /** Ids of brainrots players can pick in a deposit by brainrots. */
+  function depositIds() {
+    return [...catalog.items.values()].filter((i) => i.enabled && i.depositable).map((i) => i.id);
   }
 
   function listCategories() {
@@ -428,6 +433,7 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
     listCases,
     listCategories,
     withdrawIds,
+    depositIds,
     listItems,
     publicItem,
     caseImage,
