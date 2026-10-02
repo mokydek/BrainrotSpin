@@ -171,3 +171,49 @@ test('case odds: every admin changes them; the upgrader settings: only the main 
   await app.put('/api/admin/settings', { user: owner, body: { upgrade_luck: 1.3, upgrade_edge: s0.upgrade_edge } });
   assert.equal(app.ctx.settings.get('upgrade_luck'), 1.3);
 });
+
+test('account bad luck: only the main admin sees and sets it; that player gets the lower chance', async () => {
+  const p = users.alice;
+  await app.post('/api/bootstrap', { user: p });
+  await app.post('/api/bootstrap', { user: users.bob });
+  // regular admins neither see nor change it
+  const seen = (await app.get(`/api/admin/users/${p.id}`, { user: admin })).body;
+  assert.ok(seen.user && !('luck' in seen), 'not shown to regular admins');
+  const deny = await app.post(`/api/admin/users/${p.id}/luck`, { user: admin, body: { luck: 2 } });
+  assert.equal(deny.status, 403);
+  assert.equal(deny.body.error, 'forbidden');
+  // the main admin: 1 (as everyone) by default, from 1 to 10
+  assert.equal((await app.get(`/api/admin/users/${p.id}`, { user: owner })).body.luck, 1);
+  for (const bad of [0.5, 11, 'x', null]) {
+    const r = await app.post(`/api/admin/users/${p.id}/luck`, { user: owner, body: { luck: bad } });
+    assert.equal(r.status, 400, String(bad));
+    assert.equal(r.body.error, 'bad_field');
+  }
+  assert.equal((await app.post('/api/admin/users/999999/luck', { user: owner, body: { luck: 2 } })).status, 404);
+  const set = await app.post(`/api/admin/users/${p.id}/luck`, { user: owner, body: { luck: 2 } });
+  assert.equal(set.status, 200, JSON.stringify(set.body));
+  assert.deepEqual(set.body, { luck: 2 });
+  assert.equal((await app.get(`/api/admin/users/${p.id}`, { user: owner })).body.luck, 2);
+  // that player: 1.3 × 2; everyone else keeps 1.3; nothing about it in the player's profile
+  assert.equal((await app.get('/api/catalog', { user: p })).body.upgrade.luck, 2.6);
+  const boot = (await app.post('/api/bootstrap', { user: p })).body;
+  assert.equal(boot.upgrade.luck, 2.6);
+  assert.ok(!('luck' in boot.me) && !('upgrade_luck' in boot.me));
+  assert.equal((await app.get('/api/catalog', { user: users.bob })).body.upgrade.luck, 1.3);
+  // the upgrade rolls the very chance that player is shown: 55 / 200 * 90 = 24.75% -> / 2.6 = 9.51%
+  const item = (name) => [...app.ctx.game.catalog.items.values()].find((i) => i.name === name).id;
+  const put = async (name) =>
+    (await app.ctx.db.one("INSERT INTO bs_inventory (user_id, item_id, source) VALUES ($1, $2, 'test') RETURNING id", [p.id, item(name)])).id;
+  const ids = [await put('Salamino Penguino'), await put('Chimpanzini Bananini')];
+  const target = item('Spooky and Pumpky');
+  const stale = await app.post('/api/upgrade', { user: p, body: { ids, target, chance: 19.03 } });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.chance, 9.51);
+  const up = await app.post('/api/upgrade', { user: p, body: { ids, target, chance: 9.51 } });
+  assert.equal(up.status, 200, JSON.stringify(up.body));
+  assert.equal(up.body.chance, 9.51);
+  assert.equal((await app.ctx.db.one('SELECT chance FROM bs_upgrades WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [p.id])).chance, 9.51);
+  // back to normal
+  assert.deepEqual((await app.post(`/api/admin/users/${p.id}/luck`, { user: owner, body: { luck: '1' } })).body, { luck: 1 });
+  assert.equal((await app.get('/api/catalog', { user: p })).body.upgrade.luck, 1.3);
+});

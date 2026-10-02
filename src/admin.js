@@ -434,7 +434,22 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
       const id = int(Number(req.params.id), 1, Number.MAX_SAFE_INTEGER, 'id');
       const u = await loadUser(id);
       const log = await db.many('SELECT delta, reason, admin_id, created_at FROM bs_balance_log WHERE user_id = $1 ORDER BY id DESC LIMIT 20', [id]);
-      return { user: userRow(u), stats: await game.stats(id), inventory: await inventoryWithSources(id), log };
+      const out = { user: userRow(u), stats: await game.stats(id), inventory: await inventoryWithSources(id), log };
+      // the account's own upgrader bad luck: only the main admin sees and changes it
+      if (isMain(req.user)) out.luck = Number(u.upgrade_luck);
+      return out;
+    }),
+  );
+
+  r.post(
+    '/users/:id/luck',
+    wrap(async (req) => {
+      if (!isMain(req.user)) throw new GameError('forbidden', 403);
+      const id = int(Number(req.params.id), 1, Number.MAX_SAFE_INTEGER, 'id');
+      const luck = Math.round(num((req.body || {}).luck, 1, 10, 'luck') * 100) / 100;
+      const u = await db.one('UPDATE bs_users SET upgrade_luck = $2 WHERE id = $1 RETURNING upgrade_luck', [id, luck]);
+      if (!u) throw new GameError('not_found', 404);
+      return { luck: Number(u.upgrade_luck) };
     }),
   );
 

@@ -153,6 +153,8 @@ CREATE INDEX IF NOT EXISTS bs_balance_log_user_idx ON bs_balance_log (user_id);
 
 -- last Roblox nickname the player entered (pre-fills the deposit / withdrawal forms)
 ALTER TABLE bs_users ADD COLUMN IF NOT EXISTS roblox_nick TEXT;
+-- this account's upgrader bad luck, on top of the global one (set by the main admin; 1 = as everyone)
+ALTER TABLE bs_users ADD COLUMN IF NOT EXISTS upgrade_luck NUMERIC(6,3) NOT NULL DEFAULT 1;
 
 -- Deposits (brainrots by request or Telegram Stars) and withdrawals of brainrots.
 CREATE TABLE IF NOT EXISTS bs_requests (

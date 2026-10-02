@@ -594,6 +594,13 @@ async function userDetail(body, id) {
         <button class="btn small" data-bal="add">${C.t('a.add')}</button>
         <button class="btn small ghost" data-bal="set">${C.t('a.set')}</button>
       </div>
+      ${d.luck !== undefined
+        ? h`<div class="kv"><span>${C.t('a.userLuck')}</span><b id="uLuck">×${C.fmt(d.luck)}</b></div>
+          <div class="bal-row two">
+            <input class="input" id="uLuckIn" type="number" min="1" max="10" step="0.1" value="${d.luck}" aria-label="${C.t('a.userLuck')}">
+            <button class="btn small" data-luck>${C.t('a.save')}</button>
+          </div>`
+        : ''}
       <div class="adm-actions wrap">
         <button class="btn small ${u.isBanned ? '' : 'danger'} ghost" data-flag="is_banned" data-v="${u.isBanned ? 'false' : 'true'}">${u.isBanned ? C.t('a.unban') : C.t('a.ban')}</button>
         <button class="btn small ghost" data-flag="is_admin" data-v="${u.isAdmin ? 'false' : 'true'}">${u.isAdmin ? C.t('a.removeAdmin') : C.t('a.makeAdmin')}</button>
@@ -629,6 +636,14 @@ async function userDetail(body, id) {
           await C.API.post(`/admin/users/${id}/balance`, { mode: bal.dataset.bal, amount });
           C.toast(C.t('a.saved'), 'ok');
           if (id === C.S.me.id) await C.reloadMe();
+          return userDetail(body, id);
+        }
+        if (e.target.closest('[data-luck]')) {
+          const v = body.querySelector('#uLuckIn').value;
+          if (v === '') return;
+          await C.API.post(`/admin/users/${id}/luck`, { luck: Number(v) });
+          C.toast(C.t('a.saved'), 'ok');
+          if (id === C.S.me.id) await C.reloadCatalog();
           return userDetail(body, id);
         }
         if (flag) {
