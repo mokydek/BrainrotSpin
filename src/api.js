@@ -139,7 +139,7 @@ export function createApi(deps) {
         items: game.listItems(),
         withdrawIds: game.withdrawIds(),
         depositIds: game.depositIds(),
-        upgrade: game.upgradeSettings(),
+        upgrade: game.upgradeSettings(u),
         free: game.freeState(u),
         live: live.snapshot(),
         stats: await game.stats(u.id),
@@ -178,13 +178,13 @@ export function createApi(deps) {
     '/catalog',
     auth,
     limitLight,
-    wrap(async () => ({
+    wrap(async (req) => ({
       cases: game.listCases(),
       categories: game.listCategories(),
       items: game.listItems(),
       withdrawIds: game.withdrawIds(),
       depositIds: game.depositIds(),
-      upgrade: game.upgradeSettings(),
+      upgrade: game.upgradeSettings(req.user),
       topup: { starsRate: settings.get('stars_rate') },
     })),
   );

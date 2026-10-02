@@ -134,12 +134,18 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
     return null;
   }
 
-  function upgradeSettings() {
+  /**
+   * Upgrader settings as this player gets them: `luck` is the global bad luck times the
+   * account's own one (bs_users.upgrade_luck, set by the main admin), so the chance the
+   * player is shown is the one that is rolled.
+   */
+  function upgradeSettings(user) {
+    const own = Math.max(1, Number(user?.upgrade_luck) || 1);
     return {
       edge: settings.get('upgrade_edge'),
       minChance: settings.get('upgrade_min_chance'),
       maxChance: settings.get('upgrade_max_chance'),
-      luck: settings.get('upgrade_luck'),
+      luck: Math.round(settings.get('upgrade_luck') * own * 1e6) / 1e6,
     };
   }
 
@@ -328,10 +334,10 @@ export function createGame({ db, settings, live, tg, rng = cryptoRng }) {
     const list = parseIds(ids, 6);
     const targetItem = catalog.items.get(Number(target));
     if (!targetItem || !targetItem.enabled) throw new GameError('item_not_found', 404);
-    const s = upgradeSettings();
 
     const res = await db.tx(async (cl) => {
-      await cl.query('SELECT id FROM bs_users WHERE id = $1 FOR UPDATE', [user.id]);
+      const me = (await cl.query('SELECT upgrade_luck FROM bs_users WHERE id = $1 FOR UPDATE', [user.id])).rows[0];
+      const s = upgradeSettings(me);
       const inv = await cl.query(
         'SELECT id, item_id FROM bs_inventory WHERE user_id = $1 AND id = ANY($2::bigint[]) FOR UPDATE',
         [user.id, list],
