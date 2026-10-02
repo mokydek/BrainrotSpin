@@ -245,7 +245,8 @@ test('upgrader: chance matches the formula and the result matches the server', {
   await page.click('[data-act="up-tab"][data-v="targets"]');
   await page.click('[data-act="up-target"] >> nth=0');
   const target = num(await page.textContent('#upSlots .slot:last-child .slot-val'));
-  const expected = Math.min(80, Math.floor((bet / target) * 90 * 100) / 100);
+  // 1.3 times lower than bet / target * 90, and the app shows exactly that
+  const expected = Math.floor((Math.min(80, (bet / target) * 90) / 1.3) * 100) / 100;
   const shown = Number((await page.textContent('#gPct')).replace('%', '').replace(',', '.').replace(/\s/g, ''));
   assert.equal(shown, expected);
   const invBefore = (await demo.app.get('/api/inventory', { user: ME })).body.inventory.length;
@@ -266,7 +267,8 @@ test('upgrader: chance matches the formula and the result matches the server', {
 test('upgrader: 75% / 50% / 30% buttons pick the target with the closest chance', { skip }, async () => {
   const { page, errors } = await open({ path: '/#/upgrade' });
   await page.waitForSelector('#upPcts button');
-  assert.deepEqual(await page.locator('#upPcts button').allTextContents(), ['75%', '50%', '30%']);
+  // bad luck 1.3: the highest chance is 80 / 1.3 = 61%, so there is no 75% button
+  assert.deepEqual(await page.locator('#upPcts button').allTextContents(), ['50%', '30%']);
   assert.equal(await page.isDisabled('#upRange'), true, 'slider is off until items are picked');
   await page.click('[data-act="up-pct"][data-p="50"]');
   await page.waitForSelector('.toast');
@@ -274,10 +276,12 @@ test('upgrader: 75% / 50% / 30% buttons pick the target with the closest chance'
   await page.click('[data-act="up-pick"] >> nth=0');
   const bet = num(await page.textContent('#upSlots .slot:first-child .slot-val'));
   const { items, upgrade } = (await demo.app.get('/api/catalog', { user: ME })).body;
-  const chanceOf = (v) => Math.min(upgrade.maxChance, Math.floor((bet / v) * (100 - upgrade.edge) * 100) / 100);
+  assert.equal(upgrade.luck, 1.3);
+  const formula = (b, v) => Math.floor((Math.min(upgrade.maxChance, (b / v) * (100 - upgrade.edge)) / upgrade.luck) * 100) / 100;
+  const chanceOf = (v) => formula(bet, v);
   const candidates = items.filter((i) => i.value > bet && chanceOf(i.value) >= upgrade.minChance);
   const gauge = async () => Number((await page.textContent('#gPct')).replace('%', '').replace(',', '.').replace(/\s/g, ''));
-  for (const p of [75, 50, 30]) {
+  for (const p of [50, 30]) {
     await page.click(`[data-act="up-pct"][data-p="${p}"]`);
     const target = num(await page.textContent('#upSlots .slot:last-child .slot-val'));
     const shown = await gauge();
@@ -290,8 +294,9 @@ test('upgrader: 75% / 50% / 30% buttons pick the target with the closest chance'
   }
   // the slider: any percentage between min and max chance picks the closest target
   const { min, max } = await page.$eval('#upRange', (el) => ({ min: Number(el.min), max: Number(el.max) }));
-  assert.deepEqual({ min, max }, { min: Math.max(1, Math.ceil(upgrade.minChance)), max: Math.floor(upgrade.maxChance) });
-  for (const v of [12, 64, 41]) {
+  assert.deepEqual({ min, max }, { min: Math.max(1, Math.ceil(upgrade.minChance)), max: Math.floor(upgrade.maxChance / upgrade.luck) });
+  assert.equal(max, 61);
+  for (const v of [12, 58, 41]) {
     await page.$eval('#upRange', (el, x) => {
       el.value = String(x);
       el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -339,7 +344,7 @@ test('upgrader: 75% / 50% / 30% buttons pick the target with the closest chance'
     await page.waitForSelector('#upPcts button');
     const bet3 = num(await page.textContent('#upSlots .slot:first-child .slot-val'));
     const t3 = num(await page.textContent('#upSlots .slot:last-child .slot-val'));
-    const ch = (v) => Math.min(upgrade.maxChance, Math.floor((bet3 / v) * (100 - upgrade.edge) * 100) / 100);
+    const ch = (v) => formula(bet3, v);
     const cands = items.filter((i) => i.value > bet3 && ch(i.value) >= upgrade.minChance);
     const best = Math.min(...cands.map((i) => Math.abs(ch(i.value) - 30)));
     assert.ok(Math.abs(Math.abs(ch(t3) - 30) - best) < 1e-9, 'target re-picked for 30% with the new bet');
@@ -350,7 +355,50 @@ test('upgrader: 75% / 50% / 30% buttons pick the target with the closest chance'
   await page.click('[data-act="up-tab"][data-v="targets"]');
   await page.click('[data-act="up-target"] >> nth=0');
   assert.equal(await page.locator('#upPcts button.on').count(), 0);
+  // without bad luck all three buttons are there again
+  await demo.ctx.settings.update({ upgrade_luck: 1 });
+  await page.reload();
+  await page.waitForSelector('#upPcts button');
+  assert.deepEqual(await page.locator('#upPcts button').allTextContents(), ['75%', '50%', '30%']);
+  assert.equal(await page.getAttribute('#upRange', 'max'), '80');
+  await demo.ctx.settings.update({ upgrade_luck: 1.3 });
   assert.deepEqual(errors, []);
+  await page.context().close();
+});
+
+test('upgrader: the chance on screen is the one the server rolls; a changed chance is shown before a new try', { skip }, async () => {
+  const give = async (name) => {
+    const it = [...demo.ctx.game.catalog.items.values()].find((i) => i.name === name);
+    return (await demo.ctx.db.one("INSERT INTO bs_inventory (user_id, item_id, source) VALUES ($1, $2, 'test') RETURNING id", [ME.id, it.id])).id;
+  };
+  const inv = await give('Chimpanzini Bananini'); // 30
+  const spooky = [...demo.ctx.game.catalog.items.values()].find((i) => i.name === 'Spooky and Pumpky'); // 200
+  const { page, errors } = await open({ path: '/#/upgrade' });
+  await page.waitForSelector(`[data-act="up-pick"][data-inv="${inv}"]`);
+  await page.click(`[data-act="up-pick"][data-inv="${inv}"]`);
+  await page.click('[data-act="up-tab"][data-v="targets"]');
+  await page.click(`[data-act="up-target"][data-id="${spooky.id}"]`);
+  const gauge = async () => Number((await page.textContent('#gPct')).replace('%', '').replace(',', '.').replace(/\s/g, ''));
+  // 30 / 200 * 90 = 13.5%, 1.3 times lower = 10.38%
+  assert.equal(await gauge(), 10.38);
+  // the main admin changes the bad luck while the player looks at the old chance
+  await demo.ctx.settings.update({ upgrade_luck: 2 });
+  const upsBefore = (await demo.ctx.db.one('SELECT count(*)::int AS n FROM bs_upgrades WHERE user_id = $1', [ME.id])).n;
+  await page.click('#upBtn');
+  await page.waitForSelector('.toast.error');
+  assert.equal(await page.textContent('.toast.error'), 'Шанс изменился — проверь и попробуй ещё раз');
+  await page.waitForFunction(() => document.querySelector('#gPct').textContent.replace(/\s/g, '') === '6,75%');
+  assert.equal((await demo.ctx.db.one('SELECT count(*)::int AS n FROM bs_upgrades WHERE user_id = $1', [ME.id])).n, upsBefore, 'nothing rolled');
+  assert.ok(await page.$(`[data-act="up-target"][data-id="${spooky.id}"].sel`), 'the target is still picked');
+  assert.equal(num(await page.textContent('#upSlots .slot:first-child .slot-val')), 30, 'and the bet too');
+  // the next try uses the new chance; the server rolls with exactly what was shown
+  await page.click('#upBtn');
+  await page.waitForSelector('.result', { timeout: 9000 });
+  const last = await demo.ctx.db.one('SELECT chance FROM bs_upgrades WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [ME.id]);
+  assert.equal(Number(last.chance), 6.75);
+  await page.click('.result [data-act="close-modal"]');
+  await demo.ctx.settings.update({ upgrade_luck: 1.3 });
+  assert.deepEqual(errors.filter((e) => !/status of 409/.test(e)), []);
   await page.context().close();
 });
 
@@ -1123,34 +1171,54 @@ test('Stars rate: the field is only in the main admin\'s settings', { skip }, as
   await demo.ctx.settings.update({ stars_rate: before, start_balance: 0 });
 });
 
-test('admin: a regular admin edits case odds and the upgrader settings from the panel', { skip }, async () => {
+test('admin: a regular admin edits case odds; the upgrader settings only the main admin', { skip }, async () => {
+  const boss = { id: 7001, first_name: 'Босс', username: 'owner_ui', language_code: 'ru' };
+  await demo.app.post('/api/bootstrap', { user: boss });
   const noob = demo.bySlug.noob;
   const loot = () => demo.ctx.game.catalog.cases.get(noob.id).items.map((e) => [e.item_id, e.chance]);
   const before = loot();
   const edge = demo.ctx.settings.get('upgrade_edge');
-  const { page, errors } = await open({ path: `/#/admin/cases/${noob.id}` });
-  await page.waitForSelector('#caseForm .lr-chance');
-  await page.fill('#caseForm .lr-chance >> nth=0', '33');
-  await page.click('#caseForm button[type=submit]');
-  await page.waitForSelector('.toast.ok');
-  assert.ok(loot().some(([, c]) => c === 33), 'new chance saved');
-  await page.evaluate(() => (location.hash = '#/admin/settings'));
-  await page.waitForSelector('#setForm [name="upgrade_edge"]');
-  await page.waitForSelector('.toast.ok', { state: 'detached', timeout: 6000 }); // the case was saved
-  await page.fill('[name="upgrade_edge"]', '25');
-  await page.click('#setForm button[type=submit]');
-  await page.waitForSelector('.toast.ok');
-  assert.equal(demo.ctx.settings.get('upgrade_edge'), 25);
-  assert.equal((await demo.app.get('/api/catalog', { user: ME })).body.upgrade.edge, 25);
-  assert.deepEqual(errors, []);
-  await page.context().close();
+  {
+    const { page, errors } = await open({ path: `/#/admin/cases/${noob.id}` });
+    await page.waitForSelector('#caseForm .lr-chance');
+    await page.fill('#caseForm .lr-chance >> nth=0', '33');
+    await page.click('#caseForm button[type=submit]');
+    await page.waitForSelector('.toast.ok');
+    assert.ok(loot().some(([, c]) => c === 33), 'new chance saved');
+    await page.evaluate(() => (location.hash = '#/admin/settings'));
+    await page.waitForSelector('#setForm [name="upgrade_edge"]');
+    assert.equal(await page.locator('[name="upgrade_luck"]').count(), 0, 'bad luck is not shown to regular admins');
+    await page.waitForSelector('.toast.ok', { state: 'detached', timeout: 6000 }); // the case was saved
+    await page.fill('[name="upgrade_edge"]', '25');
+    await page.click('#setForm button[type=submit]');
+    await page.waitForSelector('.toast.error');
+    assert.equal(await page.textContent('.toast.error'), 'Что-то пошло не так');
+    assert.equal(demo.ctx.settings.get('upgrade_edge'), edge);
+    assert.deepEqual(errors.filter((e) => !/status of 403/.test(e)), []);
+    await page.context().close();
+  }
+  {
+    const { page, errors } = await open({ user: boss, path: '/#/admin/settings' });
+    await page.waitForSelector('#setForm [name="upgrade_luck"]');
+    assert.equal(await page.inputValue('[name="upgrade_luck"]'), '1.3');
+    assert.ok((await page.textContent('#setForm')).includes('Невезение апгрейдера: шанс ниже в N раз'));
+    await page.fill('[name="upgrade_edge"]', '25');
+    await page.fill('[name="upgrade_luck"]', '1.5');
+    await page.click('#setForm button[type=submit]');
+    await page.waitForSelector('.toast.ok');
+    assert.equal(demo.ctx.settings.get('upgrade_edge'), 25);
+    assert.equal(demo.ctx.settings.get('upgrade_luck'), 1.5);
+    assert.deepEqual((await demo.app.get('/api/catalog', { user: ME })).body.upgrade, { edge: 25, minChance: 1, maxChance: 80, luck: 1.5 });
+    assert.deepEqual(errors, []);
+    await page.context().close();
+  }
   // restore
   const c = demo.ctx.game.catalog.cases.get(noob.id);
   await demo.app.put(`/api/admin/cases/${noob.id}`, {
     user: ME,
     body: { name_ru: c.name_ru, name_uk: c.name_uk, name_en: c.name_en, emoji: c.emoji, color: c.color, sort: c.sort, enabled: c.enabled, price: c.price, category_id: c.category_id, items: before.map(([itemId, chance]) => ({ itemId, chance })) },
   });
-  await demo.ctx.settings.update({ upgrade_edge: edge });
+  await demo.ctx.settings.update({ upgrade_edge: edge, upgrade_luck: 1.3 });
   assert.deepEqual(loot(), before);
 });
 

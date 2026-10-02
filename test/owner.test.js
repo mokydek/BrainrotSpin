@@ -109,7 +109,7 @@ test('Stars rate: only the main admin sees and changes it', async () => {
   assert.equal(app.ctx.settings.get('stars_rate'), 1);
 });
 
-test('case odds and upgrader settings: every admin changes them (only the Stars rate is for the main admin)', async () => {
+test('case odds: every admin changes them; the upgrader settings: only the main admin', async () => {
   const noob = [...app.ctx.game.catalog.cases.values()].find((c) => c.slug === 'noob');
   const byId = (a) => [...a].sort((x, y) => x.itemId - y.itemId);
   const lootOf = () => byId(app.ctx.game.catalog.cases.get(noob.id).items.map((e) => ({ itemId: e.item_id, chance: e.chance })));
@@ -141,14 +141,33 @@ test('case odds and upgrader settings: every admin changes them (only the Stars 
   await put(admin, body({ price: noob.price, items: loot0 }));
   assert.deepEqual(lootOf(), loot0);
 
-  // upgrader settings: a regular admin changes them too
+  // upgrader settings: other admins see edge / min / max, but only the main admin changes them;
+  // the bad-luck factor is not even shown to them
   const s0 = (await app.get('/api/admin/settings', { user: admin })).body.settings;
   assert.ok(!('stars_rate' in s0), 'the Stars rate stays hidden from regular admins');
-  const r = await app.put('/api/admin/settings', { user: admin, body: { ...s0, upgrade_edge: 25, upgrade_max_chance: 66 } });
-  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.ok(!('upgrade_luck' in s0), 'so does the upgrader luck');
+  assert.equal(s0.upgrade_edge, 10);
+  const same = await app.put('/api/admin/settings', { user: admin, body: { ...s0, start_balance: 5 } });
+  assert.equal(same.status, 200, 'the form with unchanged upgrader values saves');
+  assert.equal(app.ctx.settings.get('start_balance'), 5);
+  for (const [k, v] of [['upgrade_edge', 25], ['upgrade_min_chance', 2], ['upgrade_max_chance', 66]]) {
+    const r = await app.put('/api/admin/settings', { user: admin, body: { ...s0, start_balance: 6, [k]: v } });
+    assert.equal(r.status, 403, k);
+    assert.equal(app.ctx.settings.get(k), s0[k], `${k} unchanged`);
+  }
+  assert.equal(app.ctx.settings.get('start_balance'), 5, 'nothing saved');
+  const sneak = await app.put('/api/admin/settings', { user: admin, body: { upgrade_luck: 1 } });
+  assert.equal(sneak.status, 200);
+  assert.equal(app.ctx.settings.get('upgrade_luck'), 1.3, 'luck from a regular admin is ignored');
+  // the main admin: luck 1.3 by default, can change it and the rest; players get it
+  const so = (await app.get('/api/admin/settings', { user: owner })).body.settings;
+  assert.equal(so.upgrade_luck, 1.3);
+  const o = await app.put('/api/admin/settings', { user: owner, body: { upgrade_luck: 2, upgrade_edge: 25, start_balance: 0 } });
+  assert.equal(o.status, 200, JSON.stringify(o.body));
   const up = (await app.get('/api/catalog', { user: users.alice })).body.upgrade;
-  assert.equal(up.edge, 25);
-  assert.equal(up.maxChance, 66);
-  await app.put('/api/admin/settings', { user: admin, body: { upgrade_edge: s0.upgrade_edge, upgrade_max_chance: s0.upgrade_max_chance } });
-  assert.equal(app.ctx.settings.get('upgrade_edge'), s0.upgrade_edge);
+  assert.deepEqual(up, { edge: 25, minChance: 1, maxChance: 80, luck: 2 });
+  // the highest possible chance (max / luck) must stay above the minimum
+  assert.equal((await app.put('/api/admin/settings', { user: owner, body: { upgrade_luck: 10, upgrade_max_chance: 5 } })).body.error, 'bad_setting');
+  await app.put('/api/admin/settings', { user: owner, body: { upgrade_luck: 1.3, upgrade_edge: s0.upgrade_edge } });
+  assert.equal(app.ctx.settings.get('upgrade_luck'), 1.3);
 });
