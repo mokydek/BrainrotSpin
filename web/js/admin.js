@@ -2,6 +2,14 @@
 
 const SECTIONS = ['overview', 'deposits', 'withdrawals', 'cases', 'items', 'users', 'promos', 'settings', 'broadcast'];
 const REQ_KIND = { deposits: 'deposit', withdrawals: 'withdraw' };
+// what the main admin can switch off for the other admins (the same list as src/access.js) and
+// the tab each one is in
+const ADMIN_SECTIONS = ['overview', 'deposits_brainrots', 'deposits_stars', 'withdrawals', 'cases', 'items', 'users', 'promos', 'settings', 'broadcast'];
+const TAB_NEEDS = { deposits: ['deposits_brainrots', 'deposits_stars'] };
+const SECTION_LABEL = { deposits_brainrots: 'a.sec.depBrainrots', deposits_stars: 'a.sec.depStars' };
+/** Does this admin see the section? (the server decides; the main admin sees everything) */
+const can = (section) => !C.S.adminSections || C.S.adminSections.includes(section);
+const visibleTabs = () => SECTIONS.filter((tab) => (TAB_NEEDS[tab] || [tab]).some(can));
 const RARITIES = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic', 'secret'];
 
 let C = null; // context from app.js
@@ -39,12 +47,15 @@ export function renderAdmin(view, route, ctx) {
     bcastTimer = null;
   }
   stopReqTimer();
-  const sub = SECTIONS.includes(route.sub) ? route.sub : 'overview';
+  const tabs = visibleTabs();
+  if (!tabs.length) return C.go('#/cases');
+  const sub = tabs.includes(route.sub) ? route.sub : tabs[0];
+  if (sub !== route.sub) route = { ...route, id: undefined };
   view.onclick = null;
   C.render(
     view,
     h`<div class="adm">
-      <div class="adm-tabs">${SECTIONS.map(
+      <div class="adm-tabs">${tabs.map(
         (s) => h`<a class="chip ${s === sub ? 'on' : ''}" href="#/admin/${s}">${C.t('a.' + s)}${REQ_KIND[s] ? h`<i class="chip-n" data-cnt="${REQ_KIND[s]}"></i>` : ''}</a>`,
       )}</div>
       <div id="admBody" class="adm-body"><div class="spinner"></div></div>
@@ -565,9 +576,11 @@ function itemSource(f) {
     case 'admin':
       return f.admin ? C.t('a.src.adminName', { name: f.admin.name }) : C.t('a.src.admin');
     case 'deposit':
-      return f.requestId ? h`<a class="src-link" href="#/admin/deposits/${f.requestId}">${C.t('a.r.deposit', { id: f.requestId })}</a>` : C.t('a.src.deposit');
+      if (!f.requestId) return C.t('a.src.deposit');
+      return can('deposits_brainrots') ? h`<a class="src-link" href="#/admin/deposits/${f.requestId}">${C.t('a.r.deposit', { id: f.requestId })}</a>` : C.t('a.r.deposit', { id: f.requestId });
     case 'refund':
-      return f.requestId ? h`<a class="src-link" href="#/admin/withdrawals/${f.requestId}">${C.t('a.src.refund', { id: f.requestId })}</a>` : C.t('a.src.refundAny');
+      if (!f.requestId) return C.t('a.src.refundAny');
+      return can('withdrawals') ? h`<a class="src-link" href="#/admin/withdrawals/${f.requestId}">${C.t('a.src.refund', { id: f.requestId })}</a>` : C.t('a.src.refund', { id: f.requestId });
     default:
       return f.type;
   }
@@ -752,6 +765,7 @@ const SETTING_FIELDS = [
   ['welcome_ru', 'textarea'],
   ['welcome_uk', 'textarea'],
   ['welcome_en', 'textarea'],
+  ['admin_hidden', 'sections'],
 ];
 
 async function settingsForm(body) {
@@ -763,6 +777,10 @@ async function settingsForm(body) {
     h`<form class="form" id="setForm" autocomplete="off">
       ${fields.map(([k, type]) => {
         if (type === 'bool') return h`<label class="switch"><input type="checkbox" name="${k}" ${s[k] ? C.raw('checked') : ''}><i></i>${C.t('a.s.' + k)}</label>`;
+        if (type === 'sections') {
+          return h`<h4 class="sec-title">${C.t('a.s.' + k)}</h4>
+            ${ADMIN_SECTIONS.map((x) => h`<label class="switch"><input type="checkbox" data-sec="${x}" ${s[k].includes(x) ? '' : C.raw('checked')}><i></i>${C.t(SECTION_LABEL[x] || 'a.' + x)}</label>`)}`;
+        }
         if (type === 'textarea') return h`<label>${C.t('a.s.' + k)}<textarea class="input" name="${k}" rows="4" maxlength="1000">${s[k]}</textarea></label>`;
         return h`<label>${C.t('a.s.' + k)}<input class="input" name="${k}" type="${type === 'number' ? 'number' : 'text'}" ${type === 'number' ? C.raw('step="any"') : ''} value="${s[k]}" ${type === 'url' ? C.raw('placeholder="https://t.me/…"') : ''}></label>`;
       })}
@@ -780,6 +798,7 @@ async function settingsForm(body) {
     const patch = {};
     for (const [k, type] of fields) {
       if (type === 'bool') patch[k] = f.get(k) === 'on';
+      else if (type === 'sections') patch[k] = ADMIN_SECTIONS.filter((x) => !form.querySelector(`[data-sec="${x}"]`).checked);
       else if (type === 'number') patch[k] = Number(f.get(k));
       else patch[k] = String(f.get(k) || '');
     }
@@ -987,11 +1006,12 @@ function drawReq(body, d, { keep = false } = {}) {
   const focused = active && (active.id === 'reqMsg' || active.id === 'reqAmount') ? active.id : null;
   const caret = focused === 'reqMsg' ? [active.selectionStart, active.selectionEnd] : null;
   const open = isOpen(r);
+  const player = h`${avatar(u)}<span class="row-main"><b>${u.name}</b><small>${u.username ? '@' + u.username + ' · ' : ''}ID ${u.id}</small></span><span class="row-side">${C.money(u.balance, 12)}</span>`;
   C.render(
     body,
     h`<div class="form req">
       <div class="form-head"><a class="back" href="#/admin/${SECTION_OF[r.kind]}">‹</a><b>${C.t('a.r.' + r.kind, { id: r.id })}</b>${statusBadge(r)}</div>
-      <a class="row" href="#/admin/users/${u.id}">${avatar(u)}<span class="row-main"><b>${u.name}</b><small>${u.username ? '@' + u.username + ' · ' : ''}ID ${u.id}</small></span><span class="row-side">${C.money(u.balance, 12)}</span></a>
+      ${can('users') ? h`<a class="row" href="#/admin/users/${u.id}">${player}</a>` : h`<div class="row">${player}</div>`}
       ${u.username ? h`<button type="button" class="btn small ghost req-tg" data-tg="https://t.me/${u.username}">${C.t('a.r.writeTg')}</button>` : ''}
       ${u.blockedBot ? h`<div class="note bad">${C.t('a.r.blocked')}</div>` : ''}
       ${r.nick ? h`<div class="kv"><span>${C.t('a.r.nick')}</span><b class="code" data-copy="${r.nick}">${r.nick}</b></div>` : ''}
