@@ -1,4 +1,5 @@
 // Admin-editable settings stored in bs_settings (JSONB), cached in memory.
+import { ADMIN_SECTIONS } from './access.js';
 
 const url = { type: 'string', max: 300, url: true };
 
@@ -19,6 +20,7 @@ export const SETTINGS_SCHEMA = {
   welcome_ru: { type: 'string', max: 1000, def: '' },
   welcome_uk: { type: 'string', max: 1000, def: '' },
   welcome_en: { type: 'string', max: 1000, def: '' },
+  admin_hidden: { type: 'list', values: ADMIN_SECTIONS, def: [] }, // admin sections the other admins don't see
 };
 
 // Internal keys (prefixed with _) are never exposed through the admin API.
@@ -38,6 +40,10 @@ export function validateSetting(key, value) {
   if (s.type === 'boolean') {
     if (typeof value !== 'boolean') throw new SettingsError(key, 'boolean expected');
     return value;
+  }
+  if (s.type === 'list') {
+    if (!Array.isArray(value) || value.some((v) => !s.values.includes(v))) throw new SettingsError(key, `list of ${s.values.join(', ')} expected`);
+    return s.values.filter((v) => value.includes(v));
   }
   if (s.type === 'number') {
     const n = typeof value === 'string' ? Number(value.replace(',', '.')) : value;

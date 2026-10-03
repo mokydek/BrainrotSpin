@@ -47,9 +47,29 @@ function imageData(v) {
   return v;
 }
 
-export function createAdmin({ db, settings, game, live, tg, users, requests, broadcaster }) {
+export function createAdmin({ db, settings, game, live, tg, users, requests, access, broadcaster }) {
   const r = express.Router();
   r.use((req, res, next) => (req.user && req.user.is_admin ? next() : res.status(403).json({ error: 'forbidden' })));
+
+  // sections the main admin switched off for the other admins (deposits and withdrawals are
+  // checked per request below). The case editor also reads the item list.
+  const can = (user, section) => access.can(user.id, section);
+  // (routes match regardless of letter case, so do these)
+  const ROUTE_SECTIONS = [
+    [/^\/overview(\/|$)/i, 'overview'],
+    [/^\/(cases|categories)(\/|$)/i, 'cases'],
+    [/^\/items(\/|$)/i, 'items'],
+    [/^\/users(\/|$)/i, 'users'],
+    [/^\/promos(\/|$)/i, 'promos'],
+    [/^\/(settings|check-channel)(\/|$)/i, 'settings'],
+    [/^\/broadcast(\/|$)/i, 'broadcast'],
+  ];
+  r.use((req, res, next) => {
+    const hit = ROUTE_SECTIONS.find(([re]) => re.test(req.path));
+    if (!hit || can(req.user, hit[1])) return next();
+    if (hit[1] === 'items' && req.method === 'GET' && /^\/items\/?$/i.test(req.path) && can(req.user, 'cases')) return next();
+    return res.status(403).json({ error: 'forbidden' });
+  });
 
   // ------------------------------------------------------------ overview
   r.get(
@@ -134,7 +154,7 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
   }
 
   // rights of the main admin (the Stars rate); without OWNER_IDS / OWNER_USERNAMES every admin has them
-  const isMain = (user) => users.isOwnerId(user.id) || !users.hasOwner();
+  const isMain = (user) => access.isMain(user.id);
 
   async function saveItems(cl, caseId, items) {
     await cl.query('DELETE FROM bs_case_items WHERE case_id = $1', [caseId]);
@@ -422,6 +442,9 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
     return out;
   }
 
+  // balance log reasons of requests ("stars:#12") and their sections
+  const LOG_SECTIONS = { stars: 'deposits_stars', deposit: 'deposits_brainrots', exchange: 'withdrawals' };
+
   async function loadUser(id) {
     const u = await db.one('SELECT * FROM bs_users WHERE id = $1', [id]);
     if (!u) throw new GameError('not_found', 404);
@@ -433,7 +456,14 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
     wrap(async (req) => {
       const id = int(Number(req.params.id), 1, Number.MAX_SAFE_INTEGER, 'id');
       const u = await loadUser(id);
-      const log = await db.many('SELECT delta, reason, admin_id, created_at FROM bs_balance_log WHERE user_id = $1 ORDER BY id DESC LIMIT 20', [id]);
+      // balance changes from deposits / withdrawals the admin doesn't see are left out
+      const skip = Object.entries(LOG_SECTIONS)
+        .filter(([, section]) => !can(req.user, section))
+        .map(([prefix]) => prefix + ':%');
+      const log = await db.many(
+        'SELECT delta, reason, admin_id, created_at FROM bs_balance_log WHERE user_id = $1 AND NOT (reason LIKE ANY($2::text[])) ORDER BY id DESC LIMIT 20',
+        [id, skip],
+      );
       const out = { user: userRow(u), stats: await game.stats(id), inventory: await inventoryWithSources(id), log };
       // the account's own upgrader bad luck: only the main admin sees and changes it
       if (isMain(req.user)) out.luck = Number(u.upgrade_luck);
@@ -578,9 +608,9 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
   );
 
   // ------------------------------------------------------------ settings
-  // the Stars rate and the upgrader luck are seen and changed by the main admin only;
-  // other admins don't get these fields at all
-  const OWNER_SETTINGS = ['stars_rate', 'upgrade_luck'];
+  // the Stars rate, the upgrader luck and what the other admins see are seen and changed by the
+  // main admin only; other admins don't get these fields at all
+  const OWNER_SETTINGS = ['stars_rate', 'upgrade_luck', 'admin_hidden'];
   // the rest of the upgrader settings: other admins see them, but only the main admin changes them
   // (the form always sends every field; only an actual change is refused, with the generic error)
   const UPGRADER_SETTINGS = ['upgrade_edge', 'upgrade_min_chance', 'upgrade_max_chance'];
@@ -634,16 +664,39 @@ export function createAdmin({ db, settings, game, live, tg, users, requests, bro
   const reqId = (req) => int(Number(req.params.id), 1, Number.MAX_SAFE_INTEGER, 'id');
   r.get(
     '/requests',
-    wrap(async (req) => ({
-      requests: await requests.list({ kind: String(req.query.kind || ''), scope: String(req.query.scope || 'active') }),
-    })),
+    wrap(async (req) => {
+      const kind = String(req.query.kind || '');
+      let methods = null;
+      if (kind === 'deposit') {
+        methods = [can(req.user, 'deposits_brainrots') && 'brainrot', can(req.user, 'deposits_stars') && 'stars'].filter(Boolean);
+        if (!methods.length) throw new GameError('forbidden', 403);
+      } else if (kind === 'withdraw' && !can(req.user, 'withdrawals')) {
+        throw new GameError('forbidden', 403);
+      }
+      return { requests: await requests.list({ kind, scope: String(req.query.scope || 'active'), methods }) };
+    }),
   );
-  r.get('/requests/counts', wrap(async () => ({ counts: await requests.counts() })));
-  r.get('/requests/:id', wrap(async (req) => requests.detail(reqId(req))));
-  r.post('/requests/:id/messages', wrap(async (req) => requests.adminMessage(req.user, reqId(req), (req.body || {}).text)));
-  r.post('/requests/:id/credit', wrap(async (req) => requests.credit(req.user, reqId(req), (req.body || {}).amount)));
-  r.post('/requests/:id/give', wrap(async (req) => requests.give(req.user, reqId(req), (req.body || {}).itemId)));
-  r.post('/requests/:id/status', wrap(async (req) => requests.setStatus(req.user, reqId(req), (req.body || {}).status)));
+  r.get(
+    '/requests/counts',
+    wrap(async (req) => {
+      const counts = await requests.counts(); // brainrot requests only
+      if (!can(req.user, 'deposits_brainrots')) counts.deposit = 0;
+      if (!can(req.user, 'withdrawals')) counts.withdraw = 0;
+      return { counts };
+    }),
+  );
+  /** The request id, if this admin sees requests of its kind. */
+  const visibleReq = async (req) => {
+    const id = reqId(req);
+    const section = await requests.sectionOf(id);
+    if (section && !can(req.user, section)) throw new GameError('forbidden', 403);
+    return id;
+  };
+  r.get('/requests/:id', wrap(async (req) => requests.detail(await visibleReq(req))));
+  r.post('/requests/:id/messages', wrap(async (req) => requests.adminMessage(req.user, await visibleReq(req), (req.body || {}).text)));
+  r.post('/requests/:id/credit', wrap(async (req) => requests.credit(req.user, await visibleReq(req), (req.body || {}).amount)));
+  r.post('/requests/:id/give', wrap(async (req) => requests.give(req.user, await visibleReq(req), (req.body || {}).itemId)));
+  r.post('/requests/:id/status', wrap(async (req) => requests.setStatus(req.user, await visibleReq(req), (req.body || {}).status)));
 
   return r;
 }

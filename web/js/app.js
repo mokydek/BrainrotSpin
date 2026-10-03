@@ -255,7 +255,7 @@ function setBalance(n) {
 
 function renderTabbar() {
   const cur = route().tab;
-  const tabs = ['cases', 'upgrade', 'profile'].concat(S.me && S.me.isAdmin ? ['admin'] : []);
+  const tabs = ['cases', 'upgrade', 'profile'].concat(adminUi() ? ['admin'] : []);
   render(
     $('#tabbar'),
     html`${tabs.map((k) => html`<button class="${cur === k ? 'on' : ''}" data-tab="${k}">${raw(ICON[k])}<span>${t('tab.' + k)}</span></button>`)}`,
@@ -314,13 +314,18 @@ function onDrop(d) {
 }
 
 // ------------------------------------------------------------------ routing
+/** Admin tab: admins who see at least one section of the admin panel. */
+function adminUi() {
+  return !!(S.me && S.me.isAdmin && (!S.adminSections || S.adminSections.length));
+}
+
 function route() {
   const h = location.hash.replace(/^#\/?/, '');
   const [tab, arg, arg2] = h.split('/');
   if (tab === 'case' && arg) return { tab: 'cases', view: 'case', id: Number(arg) };
   if (tab === 'upgrade') return { tab: 'upgrade', view: 'upgrade' };
   if (tab === 'profile') return { tab: 'profile', view: 'profile' };
-  if (tab === 'admin' && S.me && S.me.isAdmin) return { tab: 'admin', view: 'admin', sub: arg || 'overview', id: arg2 };
+  if (tab === 'admin' && adminUi()) return { tab: 'admin', view: 'admin', sub: arg || '', id: arg2 };
   return { tab: 'cases', view: 'cases' };
 }
 function go(hash) {
@@ -1115,6 +1120,7 @@ async function refreshMe() {
   try {
     const r = await API.get('/me');
     S.me = r.me;
+    S.adminSections = Array.isArray(r.adminSections) ? r.adminSections : null;
     S.stats = r.stats;
     S.free = { ...S.free, ...r.free };
     updateHeader();
@@ -1776,6 +1782,7 @@ async function showNoAuth() {
 
 function applyBootstrap(b) {
   S.me = b.me;
+  S.adminSections = Array.isArray(b.adminSections) ? b.adminSections : null;
   S.cases = b.cases;
   S.categories = b.categories || [];
   S.withdrawIds = Array.isArray(b.withdrawIds) ? b.withdrawIds : null;

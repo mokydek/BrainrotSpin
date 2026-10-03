@@ -217,3 +217,101 @@ test('account bad luck: only the main admin sees and sets it; that player gets t
   assert.deepEqual((await app.post(`/api/admin/users/${p.id}/luck`, { user: owner, body: { luck: '1' } })).body, { luck: 1 });
   assert.equal((await app.get('/api/catalog', { user: p })).body.upgrade.luck, 1.3);
 });
+
+test('the main admin chooses what the other admins see: sections, requests by kind, bot notifications', async () => {
+  const p = users.alice;
+  await app.post('/api/bootstrap', { user: p });
+  for (const u of [owner, admin, p]) await app.message(u, '/start'); // so the bot can write to them
+  const ALL = ['overview', 'deposits_brainrots', 'deposits_stars', 'withdrawals', 'cases', 'items', 'users', 'promos', 'settings', 'broadcast'];
+  const sectionsOf = async (u) => (await app.post('/api/bootstrap', { user: u })).body.adminSections;
+  assert.deepEqual(await sectionsOf(admin), ALL, 'everything by default');
+  assert.deepEqual(await sectionsOf(owner), ALL);
+  assert.ok(!('adminSections' in (await app.post('/api/bootstrap', { user: p })).body), 'players get nothing');
+  assert.deepEqual((await app.get('/api/me', { user: admin })).body.adminSections, ALL);
+
+  // only the main admin sees and changes the setting
+  assert.ok(!('admin_hidden' in (await settingsOf(admin))));
+  assert.equal((await app.put('/api/admin/settings', { user: admin, body: { admin_hidden: ['cases'] } })).status, 200);
+  assert.deepEqual(app.ctx.settings.get('admin_hidden'), [], 'ignored from a regular admin');
+  assert.deepEqual((await settingsOf(owner)).admin_hidden, []);
+  assert.equal((await app.put('/api/admin/settings', { user: owner, body: { admin_hidden: ['cases', 'nope'] } })).body.error, 'bad_setting');
+  const set = async (hidden) => {
+    const r = await app.put('/api/admin/settings', { user: owner, body: { admin_hidden: hidden } });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    return r.body.settings.admin_hidden;
+  };
+  assert.deepEqual(await set(['settings', 'cases', 'withdrawals', 'deposits_stars', 'cases']), ['deposits_stars', 'withdrawals', 'cases', 'settings']);
+  assert.deepEqual(await sectionsOf(admin), ['overview', 'deposits_brainrots', 'items', 'users', 'promos', 'broadcast']);
+  assert.deepEqual(await sectionsOf(owner), ALL, 'the main admin always sees everything');
+
+  // hidden sections are refused by the server, the rest works
+  const st = async (method, path, u = admin, body) => (await app.call(method, '/api/admin' + path, { user: u, body })).status;
+  for (const path of ['/cases', '/categories', '/settings', '/CASES', '/Settings/', '/cases/']) assert.equal(await st('GET', path), 403, path);
+  assert.equal(await st('PUT', '/settings', admin, { start_balance: 0 }), 403);
+  assert.equal(await st('POST', '/check-channel'), 403);
+  assert.equal(await st('POST', '/cases', admin, {}), 403);
+  for (const path of ['/overview', '/items', '/users', `/users/${p.id}`, '/promos', '/broadcast']) assert.equal(await st('GET', path), 200, path);
+  for (const path of ['/cases', '/settings']) assert.equal(await st('GET', path, owner), 200, path);
+
+  // requests: brainrot deposits are seen, Stars payments and withdrawals are not
+  app.tg.reset();
+  const dep = await app.post('/api/requests/deposit', { user: p, body: { nick: 'AliceRBX', details: 'Cerberus' } });
+  assert.equal(dep.status, 200, JSON.stringify(dep.body));
+  const depId = dep.body.request.id;
+  const toAdmin = () => app.tg.calls('sendMessage').filter((c) => Number(c.payload.chat_id) === admin.id).map((c) => c.payload.text);
+  const toOwner = () => app.tg.calls('sendMessage').filter((c) => Number(c.payload.chat_id) === owner.id).map((c) => c.payload.text);
+  assert.equal(toAdmin().length, 1, 'a brainrot deposit reaches the admin');
+  assert.equal(toOwner().length, 1);
+  const stars = (
+    await app.ctx.db.one("INSERT INTO bs_requests (user_id, kind, method, status, stars, coins, charge_id) VALUES ($1, 'deposit', 'stars', 'done', 50, 50, 'chg-vis-1') RETURNING id", [p.id])
+  ).id;
+  await app.ctx.db.query('INSERT INTO bs_balance_log (user_id, delta, reason) VALUES ($1, 50, $2)', [p.id, `stars:#${stars}`]);
+  const wd = (await app.ctx.db.one("INSERT INTO bs_requests (user_id, kind, nick) VALUES ($1, 'withdraw', 'AliceRBX') RETURNING id", [p.id])).id;
+  const ids = async (u, kind) => (await app.get(`/api/admin/requests?kind=${kind}&scope=all`, { user: u })).body.requests.map((x) => x.id);
+  assert.deepEqual(await ids(admin, 'deposit'), [depId]);
+  assert.deepEqual((await ids(owner, 'deposit')).sort(), [depId, stars].sort());
+  assert.equal((await app.get('/api/admin/requests?kind=withdraw', { user: admin })).status, 403);
+  assert.deepEqual(await ids(owner, 'withdraw'), [wd]);
+  assert.equal(await st('GET', `/requests/${depId}`), 200);
+  assert.equal(await st('GET', `/requests/${stars}`), 403);
+  assert.equal(await st('GET', `/requests/${wd}`), 403);
+  assert.equal(await st('POST', `/requests/${wd}/status`, admin, { status: 'rejected' }), 403);
+  assert.equal(await st('POST', `/requests/${wd}/messages`, admin, { text: 'hi' }), 403);
+  assert.equal((await app.ctx.db.one('SELECT status FROM bs_requests WHERE id = $1', [wd])).status, 'new', 'nothing done');
+  assert.equal(await st('GET', `/requests/${stars}`, owner), 200);
+  assert.equal(await st('GET', '/requests/999999'), 404);
+  const counts = async (u) => (await app.get('/api/admin/requests/counts', { user: u })).body.counts;
+  assert.deepEqual(await counts(admin), { deposit: 1, withdraw: 0 });
+  assert.deepEqual(await counts(owner), { deposit: 1, withdraw: 1 });
+  // the player card: no Stars payments in the balance log
+  const logOf = async (u) => (await app.get(`/api/admin/users/${p.id}`, { user: u })).body.log.map((l) => l.reason);
+  assert.ok(!(await logOf(admin)).some((x) => x.startsWith('stars:')));
+  assert.ok((await logOf(owner)).includes(`stars:#${stars}`));
+  // the player answers about the withdrawal: only the main admin hears about it
+  app.tg.reset();
+  const pu = await app.ctx.db.one('SELECT * FROM bs_users WHERE id = $1', [p.id]);
+  await app.ctx.requests.userReply(pu, wd, 'где мой брейнрот?');
+  assert.equal(toAdmin().length, 0);
+  assert.equal(toOwner().length, 1);
+  await app.ctx.requests.userReply(pu, depId, 'жду');
+  assert.equal(toAdmin().length, 1, 'about the deposit both hear');
+
+  // brainrot deposits hidden too: the deposits list is closed, new ones go to the main admin only
+  assert.deepEqual(await set(['deposits_brainrots', 'deposits_stars', 'withdrawals']), ['deposits_brainrots', 'deposits_stars', 'withdrawals']);
+  assert.equal((await app.get('/api/admin/requests?kind=deposit', { user: admin })).status, 403);
+  assert.deepEqual(await counts(admin), { deposit: 0, withdraw: 0 });
+  app.tg.reset();
+  const dep2 = await app.post('/api/requests/deposit', { user: p, body: { nick: 'AliceRBX', details: 'Tim Cheese' } });
+  assert.equal(dep2.status, 200, JSON.stringify(dep2.body));
+  assert.equal(toAdmin().length, 0);
+  assert.equal(toOwner().length, 1);
+
+  // items hidden, cases shown: the case editor still reads the item list, but items can't be changed
+  await set(['items']);
+  assert.equal(await st('GET', '/items'), 200);
+  assert.equal(await st('POST', '/items', admin, {}), 403);
+  assert.equal(await st('GET', '/cases'), 200);
+
+  await set([]);
+  assert.deepEqual(await sectionsOf(admin), ALL);
+});
