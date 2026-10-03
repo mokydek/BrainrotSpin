@@ -71,7 +71,7 @@ test('bootstrap creates the player and returns everything the app needs', async 
   const sum = griffin.items.reduce((s, e) => s + e.chance, 0);
   assert.ok(Math.abs(sum - 100) < 0.01);
   assert.equal(b.items.length, 136);
-  assert.deepEqual(b.upgrade, { edge: 10, minChance: 1, maxChance: 80, luck: 1.3 });
+  assert.deepEqual(b.upgrade, { edge: 10, minChance: 1, maxChance: 80, luck: 1.06 });
   assert.equal(b.free.requireShare, true);
   assert.equal(b.free.requireSub, false, 'no channel configured yet');
   assert.equal(b.stats.casesOpened, 0);
@@ -235,32 +235,32 @@ test('upgrader: validation, win and loss', async () => {
   assert.equal((await app.post('/api/upgrade', { user: u, body: { ids: [1, 2, 3, 4, 5, 6, 7], target: spooky.id } })).status, 400);
   assert.equal((await app.post('/api/upgrade', { user: u, body: { ids: [a], target: 999999 } })).status, 404);
 
-  // 55 / 200 * 90 = 24.75%, 1.3 times lower: 19.03% chance
+  // 55 / 200 * 90 = 24.75%, 1.06 times lower: 23.34% chance
   // the request carries the chance the player was shown; a different one is refused, nothing is spent
   const stale = await app.post('/api/upgrade', { user: u, body: { ids: [a, b], target: spooky.id, chance: 24.75 } });
   assert.equal(stale.status, 409);
   assert.equal(stale.body.error, 'chance_changed');
-  assert.equal(stale.body.chance, 19.03);
+  assert.equal(stale.body.chance, 23.34);
   assert.equal((await app.post('/api/upgrade', { user: u, body: { ids: [a, b], target: spooky.id } })).body.error, 'chance_changed', 'no chance sent');
   assert.equal((await app.get('/api/inventory', { user: u })).body.inventory.length, 2, 'nothing spent');
   // roll 0.000 wins
   rng.queue.push(0);
-  const win = await app.post('/api/upgrade', { user: u, body: { ids: [a, b], target: spooky.id, chance: 19.03 } });
+  const win = await app.post('/api/upgrade', { user: u, body: { ids: [a, b], target: spooky.id, chance: 23.34 } });
   assert.equal(win.status, 200, JSON.stringify(win.body));
   assert.equal(win.body.won, true);
-  assert.equal(win.body.chance, 19.03);
+  assert.equal(win.body.chance, 23.34);
   assert.equal(win.body.bet, 55);
   assert.equal(win.body.item.name, 'Spooky and Pumpky');
   let inv = (await app.get('/api/inventory', { user: u })).body.inventory;
   assert.deepEqual(inv.map((i) => i.item.name), ['Spooky and Pumpky']);
 
-  // Roll 19.030 is exactly on the edge -> loss (strictly lower wins)
+  // Roll 23.340 is exactly on the edge -> loss (strictly lower wins)
   const c = await give('Salamino Penguino');
   const d = await give('Chimpanzini Bananini');
-  rng.queue.push(19030);
-  const lose = await app.post('/api/upgrade', { user: u, body: { ids: [c, d], target: spooky.id, chance: 19.03 } });
+  rng.queue.push(23340);
+  const lose = await app.post('/api/upgrade', { user: u, body: { ids: [c, d], target: spooky.id, chance: 23.34 } });
   assert.equal(lose.body.won, false);
-  assert.equal(lose.body.roll, 19.03);
+  assert.equal(lose.body.roll, 23.34);
   inv = (await app.get('/api/inventory', { user: u })).body.inventory;
   assert.deepEqual(inv.map((i) => i.item.name), ['Spooky and Pumpky']);
 

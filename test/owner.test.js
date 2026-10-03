@@ -158,18 +158,18 @@ test('case odds: every admin changes them; the upgrader settings: only the main 
   assert.equal(app.ctx.settings.get('start_balance'), 5, 'nothing saved');
   const sneak = await app.put('/api/admin/settings', { user: admin, body: { upgrade_luck: 1 } });
   assert.equal(sneak.status, 200);
-  assert.equal(app.ctx.settings.get('upgrade_luck'), 1.3, 'luck from a regular admin is ignored');
-  // the main admin: luck 1.3 by default, can change it and the rest; players get it
+  assert.equal(app.ctx.settings.get('upgrade_luck'), 1.06, 'luck from a regular admin is ignored');
+  // the main admin: luck 1.06 by default, can change it and the rest; players get it
   const so = (await app.get('/api/admin/settings', { user: owner })).body.settings;
-  assert.equal(so.upgrade_luck, 1.3);
+  assert.equal(so.upgrade_luck, 1.06);
   const o = await app.put('/api/admin/settings', { user: owner, body: { upgrade_luck: 2, upgrade_edge: 25, start_balance: 0 } });
   assert.equal(o.status, 200, JSON.stringify(o.body));
   const up = (await app.get('/api/catalog', { user: users.alice })).body.upgrade;
   assert.deepEqual(up, { edge: 25, minChance: 1, maxChance: 80, luck: 2 });
   // the highest possible chance (max / luck) must stay above the minimum
   assert.equal((await app.put('/api/admin/settings', { user: owner, body: { upgrade_luck: 10, upgrade_max_chance: 5 } })).body.error, 'bad_setting');
-  await app.put('/api/admin/settings', { user: owner, body: { upgrade_luck: 1.3, upgrade_edge: s0.upgrade_edge } });
-  assert.equal(app.ctx.settings.get('upgrade_luck'), 1.3);
+  await app.put('/api/admin/settings', { user: owner, body: { upgrade_luck: 1.06, upgrade_edge: s0.upgrade_edge } });
+  assert.equal(app.ctx.settings.get('upgrade_luck'), 1.06);
 });
 
 test('account bad luck: only the main admin sees and sets it; that player gets the lower chance', async () => {
@@ -194,28 +194,28 @@ test('account bad luck: only the main admin sees and sets it; that player gets t
   assert.equal(set.status, 200, JSON.stringify(set.body));
   assert.deepEqual(set.body, { luck: 2 });
   assert.equal((await app.get(`/api/admin/users/${p.id}`, { user: owner })).body.luck, 2);
-  // that player: 1.3 × 2; everyone else keeps 1.3; nothing about it in the player's profile
-  assert.equal((await app.get('/api/catalog', { user: p })).body.upgrade.luck, 2.6);
+  // that player: 1.06 × 2; everyone else keeps 1.06; nothing about it in the player's profile
+  assert.equal((await app.get('/api/catalog', { user: p })).body.upgrade.luck, 2.12);
   const boot = (await app.post('/api/bootstrap', { user: p })).body;
-  assert.equal(boot.upgrade.luck, 2.6);
+  assert.equal(boot.upgrade.luck, 2.12);
   assert.ok(!('luck' in boot.me) && !('upgrade_luck' in boot.me));
-  assert.equal((await app.get('/api/catalog', { user: users.bob })).body.upgrade.luck, 1.3);
-  // the upgrade rolls the very chance that player is shown: 55 / 200 * 90 = 24.75% -> / 2.6 = 9.51%
+  assert.equal((await app.get('/api/catalog', { user: users.bob })).body.upgrade.luck, 1.06);
+  // the upgrade rolls the very chance that player is shown: 55 / 200 * 90 = 24.75% -> / 2.12 = 11.67%
   const item = (name) => [...app.ctx.game.catalog.items.values()].find((i) => i.name === name).id;
   const put = async (name) =>
     (await app.ctx.db.one("INSERT INTO bs_inventory (user_id, item_id, source) VALUES ($1, $2, 'test') RETURNING id", [p.id, item(name)])).id;
   const ids = [await put('Salamino Penguino'), await put('Chimpanzini Bananini')];
   const target = item('Spooky and Pumpky');
-  const stale = await app.post('/api/upgrade', { user: p, body: { ids, target, chance: 19.03 } });
+  const stale = await app.post('/api/upgrade', { user: p, body: { ids, target, chance: 23.34 } });
   assert.equal(stale.status, 409);
-  assert.equal(stale.body.chance, 9.51);
-  const up = await app.post('/api/upgrade', { user: p, body: { ids, target, chance: 9.51 } });
+  assert.equal(stale.body.chance, 11.67);
+  const up = await app.post('/api/upgrade', { user: p, body: { ids, target, chance: 11.67 } });
   assert.equal(up.status, 200, JSON.stringify(up.body));
-  assert.equal(up.body.chance, 9.51);
-  assert.equal((await app.ctx.db.one('SELECT chance FROM bs_upgrades WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [p.id])).chance, 9.51);
+  assert.equal(up.body.chance, 11.67);
+  assert.equal((await app.ctx.db.one('SELECT chance FROM bs_upgrades WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [p.id])).chance, 11.67);
   // back to normal
   assert.deepEqual((await app.post(`/api/admin/users/${p.id}/luck`, { user: owner, body: { luck: '1' } })).body, { luck: 1 });
-  assert.equal((await app.get('/api/catalog', { user: p })).body.upgrade.luck, 1.3);
+  assert.equal((await app.get('/api/catalog', { user: p })).body.upgrade.luck, 1.06);
 });
 
 test('the main admin chooses what the other admins see: sections, requests by kind, bot notifications', async () => {
@@ -314,4 +314,36 @@ test('the main admin chooses what the other admins see: sections, requests by ki
 
   await set([]);
   assert.deepEqual(await sectionsOf(admin), ALL);
+});
+
+test('bad luck goes down to 1.06 once on an existing database; later changes stay', async () => {
+  const { createSettings, lowerLuckOnce } = await import('../src/settings.js');
+  assert.equal(app.ctx.settings.get('_luck_106'), true, 'done at the first start');
+  assert.equal(app.ctx.settings.get('upgrade_luck'), 1.06);
+  // a database from the previous version: 1.3 saved, not lowered yet
+  const restart = async () => {
+    const s = createSettings(app.ctx.db);
+    await s.load();
+    return s;
+  };
+  await app.ctx.db.query("DELETE FROM bs_settings WHERE key = '_luck_106'");
+  await app.ctx.settings.update({ upgrade_luck: 1.3 });
+  let s = await restart();
+  assert.equal(s.get('upgrade_luck'), 1.3);
+  assert.equal(await lowerLuckOnce(s), true);
+  assert.equal(s.get('upgrade_luck'), 1.06);
+  assert.equal((await restart()).get('upgrade_luck'), 1.06, 'saved');
+  // the main admin sets it again: the next starts leave it alone
+  await s.update({ upgrade_luck: 1.3 });
+  s = await restart();
+  assert.equal(await lowerLuckOnce(s), false);
+  assert.equal(s.get('upgrade_luck'), 1.3);
+  // a lower value is never raised
+  await app.ctx.db.query("DELETE FROM bs_settings WHERE key = '_luck_106'");
+  await s.update({ upgrade_luck: 1 });
+  s = await restart();
+  assert.equal(await lowerLuckOnce(s), false);
+  assert.equal(s.get('upgrade_luck'), 1);
+  assert.equal((await restart()).get('_luck_106'), true);
+  await app.ctx.settings.update({ upgrade_luck: 1.06 });
 });
