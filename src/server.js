@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
 import { createDb, migrate } from './db.js';
-import { createSettings } from './settings.js';
+import { createSettings, lowerLuckOnce } from './settings.js';
 import { createGame } from './game.js';
 import { createLive } from './live.js';
 import { createUsers } from './users.js';
@@ -54,6 +54,7 @@ export async function createServer(env = process.env, overrides = {}) {
   await migrate(db);
   const settings = createSettings(db);
   await settings.load();
+  await lowerLuckOnce(settings).catch((e) => console.warn('[settings] bad luck 1.06:', e.message));
 
   const holder = { bot: null, game: null };
   const tg = overrides.tg || createTg(() => holder.bot, config);

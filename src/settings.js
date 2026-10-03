@@ -14,7 +14,7 @@ export const SETTINGS_SCHEMA = {
   upgrade_edge: { type: 'number', min: 0, max: 90, def: 10 }, // % kept by the upgrader
   upgrade_min_chance: { type: 'number', min: 0.01, max: 50, def: 1 },
   upgrade_max_chance: { type: 'number', min: 1, max: 95, def: 80 },
-  upgrade_luck: { type: 'number', min: 1, max: 10, def: 1.3 }, // every upgrade chance is this many times lower
+  upgrade_luck: { type: 'number', min: 1, max: 10, def: 1.06 }, // every upgrade chance is this many times lower
   start_balance: { type: 'number', min: 0, max: 1_000_000, def: 0, int: true },
   stars_rate: { type: 'number', min: 0.01, max: 1_000_000, def: 1 }, // coins for 1 Telegram Star
   welcome_ru: { type: 'string', max: 1000, def: '' },
@@ -61,6 +61,18 @@ export function validateSetting(key, value) {
     throw new SettingsError(key, '@username or -100… id expected');
   }
   return v;
+}
+
+/**
+ * Once per database: the upgrader bad luck goes down to 1.06 if it is higher, so the 75% upgrade
+ * is there again (80 / 1.06 = 75.4%). After that the main admin changes it as usual.
+ */
+export async function lowerLuckOnce(settings) {
+  if (settings.get('_luck_106')) return false;
+  const lower = settings.get('upgrade_luck') > 1.06;
+  if (lower) await settings.update({ upgrade_luck: 1.06 });
+  await settings.setInternal('_luck_106', true);
+  return lower;
 }
 
 export function createSettings(db) {
