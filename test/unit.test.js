@@ -194,6 +194,8 @@ test('UI texts: RU/UK/EN have the same keys and every key used in the app exists
     ...['created', 'credit', 'give', 'done', 'rejected'].map((k) => 'a.r.sys.' + k),
     ...['users', 'new24', 'online', 'opened24', 'upgrades24', 'coins', 'items_value'].map((k) => 'a.st.' + k),
     ...Object.keys(SETTINGS_SCHEMA).map((k) => 'a.s.' + k),
+    'a.sec.depBrainrots',
+    'a.sec.depStars',
   ];
   for (const k of [...used, ...dynamic]) assert.ok(k in DICTS.ru, `missing text key: ${k}`);
 

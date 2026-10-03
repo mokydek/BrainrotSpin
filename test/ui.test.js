@@ -1320,6 +1320,70 @@ test('main admin: bad luck for one account from the player card; that player see
   assert.equal(await luckOf(), 1);
 });
 
+test('main admin: switches off sections for the other admins; they lose those tabs', { skip }, async () => {
+  const boss = { id: 7001, first_name: 'Босс', username: 'owner_ui', language_code: 'ru' };
+  await demo.app.post('/api/bootstrap', { user: boss });
+  const chips = (page) => page.$$eval('.adm-tabs .chip', (els) => els.map((e) => e.firstChild.textContent));
+  const doneDeposits = async (page) => {
+    await page.evaluate(() => (location.hash = '#/admin/deposits'));
+    await page.waitForSelector('.adm-seg [data-scope="done"]');
+    if (!(await page.$('.adm-seg [data-scope="done"].on'))) await page.click('.adm-seg [data-scope="done"]');
+    await page.waitForSelector('.adm-seg [data-scope="done"].on');
+    await page.waitForSelector('#reqList .req-row, #reqList .empty-box');
+    return page.$$eval('#reqList .req-row', (els) => els.map((e) => e.textContent));
+  };
+  const ALL_TABS = ['Обзор', 'Пополнения', 'Выводы', 'Кейсы', 'Предметы', 'Игроки', 'Промо', 'Настройки', 'Рассылка'];
+  // a regular admin sees everything and has no such switches
+  {
+    const { page, errors } = await open({ path: '/#/admin/settings' });
+    await page.waitForSelector('#setForm');
+    assert.deepEqual(await chips(page), ALL_TABS);
+    assert.equal(await page.locator('[data-sec]').count(), 0);
+    assert.ok(!(await page.textContent('#setForm')).includes('Что видят обычные админы'));
+    assert.deepEqual(errors, []);
+    await page.context().close();
+  }
+  // the main admin switches off cases, Stars deposits and broadcasts
+  {
+    const { page, errors } = await open({ user: boss, path: '/#/admin/settings' });
+    await page.waitForSelector('#setForm [data-sec]', { state: 'attached' });
+    const labels = await page.$$eval('#setForm label:has([data-sec])', (els) => els.map((e) => e.textContent.trim()));
+    assert.deepEqual(labels, ['Обзор', 'Пополнения брейнротами', 'Пополнения звёздами', 'Выводы', 'Кейсы', 'Предметы', 'Игроки', 'Промо', 'Настройки', 'Рассылка']);
+    assert.ok((await page.textContent('#setForm')).includes('Что видят обычные админы'));
+    assert.equal(await page.locator('[data-sec]:checked').count(), 10, 'all on by default');
+    for (const x of ['cases', 'deposits_stars', 'broadcast']) await page.click(`label:has([data-sec="${x}"])`);
+    await page.click('#setForm button[type=submit]');
+    await page.waitForSelector('.toast.ok');
+    assert.deepEqual(demo.ctx.settings.get('admin_hidden'), ['deposits_stars', 'cases', 'broadcast']);
+    assert.deepEqual(await chips(page), ALL_TABS, 'the main admin keeps every tab');
+    await page.reload();
+    await page.waitForSelector('#setForm [data-sec]', { state: 'attached' });
+    assert.deepEqual(
+      await page.$$eval('[data-sec]', (els) => els.filter((e) => !e.checked).map((e) => e.dataset.sec)),
+      ['deposits_stars', 'cases', 'broadcast'],
+      'saved',
+    );
+    // the main admin still sees the Stars payment among the done deposits
+    assert.ok((await doneDeposits(page)).some((x) => x.includes('⭐')));
+    assert.deepEqual(errors, []);
+    await page.context().close();
+  }
+  // the regular admin: no Cases / Broadcast tabs; an old link to cases opens the first tab instead
+  {
+    const { page, errors } = await open({ path: `/#/admin/cases/${demo.bySlug.noob.id}` });
+    await page.waitForSelector('.adm-tabs .chip.on');
+    assert.deepEqual(await chips(page), ['Обзор', 'Пополнения', 'Выводы', 'Предметы', 'Игроки', 'Промо', 'Настройки']);
+    assert.equal(await page.textContent('.adm-tabs .chip.on'), 'Обзор');
+    await page.waitForSelector('.adm-stats');
+    // deposits: brainrot requests only, no Stars payments
+    assert.ok(!(await doneDeposits(page)).some((x) => x.includes('⭐')), 'no Stars payments');
+    assert.ok((await page.textContent('#admBody')).length > 0);
+    assert.deepEqual(errors, []);
+    await page.context().close();
+  }
+  await demo.ctx.settings.update({ admin_hidden: [] });
+});
+
 test('non-admins have no admin tab and cannot open it', { skip }, async () => {
   const { page } = await open({ user: demo.others[1], path: '/#/admin/cases' });
   await page.waitForSelector('.case-grid');
