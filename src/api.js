@@ -96,7 +96,9 @@ export function meView(u) {
 }
 
 export function createApi(deps) {
-  const { config, db, settings, game, live, users, tg, requests } = deps;
+  const { config, db, settings, game, live, users, tg, requests, access } = deps;
+  // admins: which admin panel sections they see (the main admin decides for the others)
+  const adminPart = (u) => (u.is_admin ? { adminSections: access.sections(u.id) } : {});
   const r = express.Router();
   const auth = createAuth(deps);
   const limitActions = rateLimiter(12, 3000);
@@ -134,6 +136,7 @@ export function createApi(deps) {
       const u = req.user;
       return {
         me: meView(u),
+        ...adminPart(u),
         cases: game.listCases(),
         categories: game.listCategories(),
         items: game.listItems(),
@@ -172,7 +175,7 @@ export function createApi(deps) {
     }),
   );
 
-  r.get('/me', auth, limitLight, wrap(async (req) => ({ me: meView(req.user), stats: await game.stats(req.user.id), free: game.freeState(req.user) })));
+  r.get('/me', auth, limitLight, wrap(async (req) => ({ me: meView(req.user), ...adminPart(req.user), stats: await game.stats(req.user.id), free: game.freeState(req.user) })));
   r.get('/inventory', auth, limitLight, wrap(async (req) => ({ inventory: await game.inventory(req.user.id) })));
   r.get(
     '/catalog',

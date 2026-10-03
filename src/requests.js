@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { GameError, displayName } from './game.js';
 import { rarityOf } from './rarity.js';
 import { T } from './texts.js';
+import { requestSection } from './access.js';
 
 export const OPEN = ['new', 'active'];
 export const MAX_OPEN_REQUESTS = 5;
@@ -53,7 +54,7 @@ function parseIds(ids, max = 100) {
   return out;
 }
 
-export function createRequests({ db, settings, game, tg, config }) {
+export function createRequests({ db, settings, game, tg, config, access }) {
   const httpsWeb = /^https:\/\//.test(config.webUrl || '');
   const section = (kind) => (kind === 'withdraw' ? 'withdrawals' : 'deposits');
 
@@ -148,6 +149,8 @@ export function createRequests({ db, settings, game, tg, config }) {
       console.warn('[requests] admin list failed:', e.message);
     }
     for (const a of admins) {
+      // only admins who see this kind of request in the panel
+      if (access && !access.can(a.id, requestSection(row))) continue;
       const t = T(a.lang);
       const extra = httpsWeb
         ? { reply_markup: { inline_keyboard: [[{ text: t.btnOpenRequest, web_app: { url: `${config.webUrl}/?go=admin/${section(row.kind)}/${row.id}` } }]] } }
@@ -377,7 +380,8 @@ export function createRequests({ db, settings, game, tg, config }) {
   // admin tabs: in progress (new + active) / done / declined; "all" for everything
   const SCOPES = { active: OPEN, open: OPEN, done: ['done'], rejected: ['rejected'], all: null };
 
-  async function list({ kind, scope = 'active' } = {}) {
+  /** `methods`: only these ('brainrot' / 'stars'); null for all. */
+  async function list({ kind, scope = 'active', methods = null } = {}) {
     if (kind !== 'deposit' && kind !== 'withdraw') throw new GameError('bad_field', 400, { field: 'kind' });
     if (!Object.hasOwn(SCOPES, scope)) throw new GameError('bad_field', 400, { field: 'scope' });
     const rows = await db.many(
@@ -385,10 +389,17 @@ export function createRequests({ db, settings, game, tg, config }) {
               lm.author AS last_author, lm.text AS last_text
          FROM bs_requests r JOIN bs_users u ON u.id = r.user_id ${LAST_MSG}
         WHERE r.kind = $1 AND ($2::text[] IS NULL OR r.status = ANY($2::text[]))
+          AND ($3::text[] IS NULL OR r.method = ANY($3::text[]))
         ORDER BY r.updated_at DESC, r.id DESC LIMIT 200`,
-      [kind, SCOPES[scope]],
+      [kind, SCOPES[scope], methods],
     );
     return rows.map(view);
+  }
+
+  /** The admin panel section a request is in (null if there is no such request). */
+  async function sectionOf(id) {
+    const r = await db.one('SELECT kind, method FROM bs_requests WHERE id = $1', [id]);
+    return r ? requestSection(r) : null;
   }
 
   /** Open requests that wait for an admin (new or the player wrote last). */
@@ -544,6 +555,7 @@ export function createRequests({ db, settings, game, tg, config }) {
     ownRequest,
     findByTgMessage,
     list,
+    sectionOf,
     counts,
     detail,
     adminMessage,

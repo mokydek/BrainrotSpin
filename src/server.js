@@ -13,6 +13,7 @@ import { createApi, sendError } from './api.js';
 import { createAdmin } from './admin.js';
 import { createBot, ALLOWED_UPDATES } from './bot.js';
 import { createRequests } from './requests.js';
+import { createAccess } from './access.js';
 import { GameError } from './game.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -67,7 +68,8 @@ export async function createServer(env = process.env, overrides = {}) {
   await game.reloadCatalog();
   await live.init();
   const users = createUsers({ db, settings, config });
-  const requests = createRequests({ db, settings, game, tg, config });
+  const access = createAccess({ settings, users });
+  const requests = createRequests({ db, settings, game, tg, config, access });
 
   let botPart = null;
   if (config.botToken && config.botMode !== 'off') {
@@ -86,12 +88,12 @@ export async function createServer(env = process.env, overrides = {}) {
 
   if (botPart) app.post(config.webhookPath, express.json({ limit: '1mb' }), botPart.webhookHandler);
 
-  const { router, auth } = createApi({ config, db, settings, game, live, users, tg, requests });
+  const { router, auth } = createApi({ config, db, settings, game, live, users, tg, requests, access });
   app.use(
     '/api/admin',
     express.json({ limit: '1mb' }),
     auth,
-    createAdmin({ db, settings, game, live, tg, users, requests, broadcaster: botPart ? botPart.broadcaster : noBroadcaster }),
+    createAdmin({ db, settings, game, live, tg, users, requests, access, broadcaster: botPart ? botPart.broadcaster : noBroadcaster }),
   );
   app.use('/api', express.json({ limit: '64kb' }), router);
   app.use('/api', (req, res) => res.status(404).json({ error: 'not_found' }));
